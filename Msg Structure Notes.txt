@@ -1,0 +1,38 @@
+Message File Structure
+- participants (list, dict: [name: text])
+- messages: (list, dict) no particular order (need to be able to insert appropriately
+- title: text
+- is_still_participant: bool,
+- thread_type: (Regular, RegularGroup)
+- thread_path: "inbox/title_identifier"
+
+Individual Message Structure
+- sender_name
+- timestamp_ms
+- content(?) (need to clean for \n)
+- photos(?)
+	- uri, file location (format: messages/inbox/<chat_name>/photos/<file_name.jpg>)
+	- creation_timestamp
+- reactions (list, dict)
+	- reaction 
+	- actor
+- type ("Generic", "Share")
+- share (only for share)
+    - link "text"
+- ip: text
+- is_unsent (bool)
+
+
+{
+      "sender_name": "Oliver Berry",
+      "timestamp_ms": 1573306101970,
+      "content": "Oliver Berry removed you from the group.",
+      "type": "Unsubscribe",
+      "users": [
+        {
+          "name": "Raine Bianchini"
+        }
+      ],
+      "is_unsent": false
+    },
+

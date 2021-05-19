@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Personal Data
+raw_data/*
+
 # Distribution / packaging
 .Python
 build/
@@ -25,6 +28,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.suo
 MANIFEST
 
 # PyInstaller
