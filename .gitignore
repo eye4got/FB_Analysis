@@ -29,6 +29,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 *.suo
+*.sln
+*.pyproject
 MANIFEST
 
 # PyInstaller
