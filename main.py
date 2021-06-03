@@ -1,6 +1,4 @@
-import convo
 import convo_reader
-import os
 
 print("Startup Commencing")
 root_path = "raw_data/extract-26_04_2021"

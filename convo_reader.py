@@ -1,27 +1,27 @@
-import os
-import re
 import json
 import operator
-import datetime
+import os
+import re
 from types import SimpleNamespace
 from django.utils.text import slugify
 
-import convo
+from convo import *
 
-class ConvoReader():
 
-    inbox_path = "/messages/inbox/" # TODO: Handle filepath with and without extra '/'
+class ConvoReader:
+
+    inbox_path = "/messages/inbox/" # TODO: Handle file path with and without extra '/'
     file_name_pattern = r"(message_\d{1}.json)"
     group_thread_type = "RegularGroup"
     text_msg_type = "Generic"
-    timestamp_field_name = "timestamp_ms" # FIXME: extremely mixed handling of specifc Json field labels
+    timestamp_field_name = "timestamp_ms" # FIXME: extremely mixed handling of specific Json field labels
 
 
     def __init__(self, root_path: str, output_path: str, user_name: str):
         self.file_path = root_path + self.inbox_path
-        self.convos = dict()
-        self.persons = dict()
-        self.user = convo.User(user_name, root_path)
+        self.convos : Dict[str, Convo] = dict()
+        self.persons : Dict[str, Person] = dict()
+        self.user = User(user_name, root_path)
 
         # Identify all conversations in directory
         convo_list = os.listdir(self.file_path)
@@ -49,7 +49,7 @@ class ConvoReader():
                 self.persons[person_name] = chosen_person
             
             curr_convo.participants[person_name] = chosen_person
-            curr_convo.convo_sides[person_name] = convo.ConvoSide(chosen_person)
+            curr_convo.convo_sides[person_name] = ConvoSide(chosen_person)
 
         return curr_convo.convo_sides[person_name]
 
@@ -69,14 +69,14 @@ class ConvoReader():
         # necessary
         curr_participants = self.user.get_or_create_persons(convo_persons)
 
-        # TODO: verify there are no other threadtypes
+        # TODO: verify there are no other thread types
         is_group = raw_convo["thread_type"] == self.group_thread_type
         is_active = raw_convo["is_still_participant"]
 
-        return convo.Convo(raw_convo["title"], curr_participants, is_active, is_group)
+        return Convo(raw_convo["title"], curr_participants, is_active, is_group)
 
 
-    def extract_json_files(self, json_list) -> list[str]:
+    def extract_json_files(self, json_list) -> List[SimpleNamespace]:
 
         message_list = []
 
@@ -111,7 +111,7 @@ class ConvoReader():
 
         curr_convo = self.setup_convo(json_list[0])
 
-        # Get sorted list of messsages
+        # Get sorted list of messages
         messages_list = self.extract_json_files(json_list)
         messages_list.sort(key=operator.attrgetter(self.timestamp_field_name))
 
@@ -121,7 +121,7 @@ class ConvoReader():
         curr_convo_side = self.get_or_create_convo_side(curr_convo, first_sender)
         curr_block_msg_count = 0
         curr_block_char_count = 0
-        curr_block_start_time = get_start_time(messages_list)
+        curr_block_start_time = self.get_start_time(messages_list)
 
         # Extract first person to send a message
         curr_convo.convo_starter = curr_convo_side.person
@@ -142,7 +142,7 @@ class ConvoReader():
                 curr_convo_side = self.get_or_create_convo_side(curr_convo, msg.sender_name)
                 curr_block_msg_count = 1
                 curr_block_char_count = 0
-                curr_block_start_time = get_start_time(messages_list)
+                curr_block_start_time = self.get_start_time(messages_list)
 
                 if msg.type == self.text_msg_type and hasattr(msg, "content"):
                     curr_block_char_count = len(msg.content)

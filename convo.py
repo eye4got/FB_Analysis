@@ -1,5 +1,15 @@
-class ConvoSide():
-    
+from typing import *
+import datetime
+
+class Person:
+
+    def __init__(self, name: str):
+        self.name = name
+        self.convoSides = []
+
+
+class ConvoSide:
+
     def __init__(self, person: Person):
 
         self.person = person
@@ -13,20 +23,19 @@ class ConvoSide():
         #self.charBlockFreq = np.zeros(8)
         #self.replyTimeFreq = np.zeros(8)
         #self.dailyMsgCount = []
-        #self.dailycharCount = []
+        #self.dailyCharCount = []
         # self.reactPercent = [] # Only based on active days, as a proportion
         # of all messages received
-        self.multi_msg_counts = []
+        self.multi_msg_counts : List[Tuple[int, datetime.datetime]] = []
 
 
     def get_name(self) -> str:
         return self.person.name
 
-    # FIXME: correct timestamp type 
-    def add_block_msg_count(self, count: int, time_stamp: long):
+    def add_block_msg_count(self, count: int, time_stamp: datetime.datetime):
 
-        if (count >= 1):
-            raise ValueError("You cannot have a nonpositive number of messages")
+        if count >= 1:
+            raise ValueError("You cannot have a non-positive number of messages")
 
         self.multi_msg_counts.append((count, time_stamp))
 
@@ -38,17 +47,9 @@ class ConvoSide():
         return output
 
 
-class Person():
-
-
-    def __init__(self, name: str):
-        self.name = name
-        self.convoSides = []
-
-
-class Convo():
+class Convo:
     
-    def __init__(self, name: str, participants: list[Person], is_active: bool, is_group: bool):
+    def __init__(self, name: str, participants: Dict[str, Person], is_active: bool, is_group: bool):
         self.convo_name = name
         self.participants = participants
         self.start_time = None
@@ -70,7 +71,7 @@ class Convo():
         return output
        
 
-class User():
+class User:
 
     def __init__(self, name: str, root_path: str):
         self.name = name
@@ -79,8 +80,8 @@ class User():
         self.persons = dict()
 
 
-    def get_or_create_persons(self, name_list: list[str]) -> list[persons]:
-        
+    def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
+
         # FIXME: Remove user from participants?
         selected_persons = dict()
 
