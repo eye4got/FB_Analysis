@@ -1,27 +1,35 @@
 import json
-import operator
 import os
 import re
+from operator import attrgetter
 from types import SimpleNamespace
+
 from django.utils.text import slugify
 
 from convo import *
 
 
 class ConvoReader:
-
-    inbox_path = "/messages/inbox/" # TODO: Handle file path with and without extra '/'
+    inbox_path = "messages/inbox/"
     file_name_pattern = r"(message_\d{1}.json)"
     group_thread_type = "RegularGroup"
     text_msg_type = "Generic"
-    timestamp_field_name = "timestamp_ms" # FIXME: extremely mixed handling of specific Json field labels
-
 
     def __init__(self, root_path: str, output_path: str, user_name: str):
+
+        if root_path[-1] != "/":
+            root_path += "/"
+
+        # TODO: explicit file path validation vs try/catch blocks in main.py? for main path
+        # TODO: Implement logging using appropriate packages?
+
         self.file_path = root_path + self.inbox_path
-        self.convos : Dict[str, Convo] = dict()
-        self.persons : Dict[str, Person] = dict()
+        self.convos: Dict[str, Convo] = dict()
+        self.persons: Dict[str, Person] = dict()
         self.user = User(user_name, root_path)
+
+        self.open_file_fail_count = 0
+        self.output_file_fail_count = 0
 
         # Identify all conversations in directory
         convo_list = os.listdir(self.file_path)
@@ -31,13 +39,30 @@ class ConvoReader:
             curr_convo = self.extract_convo(self.file_path + convo_path)
             self.user.convos[curr_convo.convo_name] = curr_convo
 
-            file_output_path = root_path + "/" + output_path + "/"
-            file_output_path += "/" + slugify(curr_convo.convo_name) + ".txt"
+            # Temporary solution to allow testing. GUI/output will be their own module(s)
+            if curr_convo is not None:
+                curr_convo.msg_count = sum([x.msg_count for x in curr_convo.convo_sides.values()])
 
-            print("Complete:", file_output_path)
+                file_output_path = root_path + "/" + output_path + "/"
+                file_output_path += "/" + slugify(curr_convo.convo_name) + ".txt"
 
-            with open(file_output_path, "w", encoding="utf8") as file_obj:
-                file_obj.write(str(curr_convo))
+                print(f"Complete: {file_output_path}")
+
+                try:
+                    with open(file_output_path, "w", encoding="utf8") as file_obj:
+                        file_obj.write(str(curr_convo))
+
+                except IOError as err:
+                    self.output_file_fail_count += 1
+                    print(f"Could not output to: {file_output_path}")
+                    print(err)
+
+        # Output is temporary, counters will need to be provided to output/UI though
+        if self.open_file_fail_count > 0:
+            print(f"{self.open_file_fail_count} file(s) could not be opened")
+
+        if self.output_file_fail_count > 0:
+            print(f"{self.output_file_fail_count} file(s) could not be written to")
 
     def get_or_create_convo_side(self, curr_convo: Convo, person_name: str) -> ConvoSide:
 
@@ -47,17 +72,23 @@ class ConvoReader:
             else:
                 chosen_person = Person(person_name)
                 self.persons[person_name] = chosen_person
-            
+
             curr_convo.participants[person_name] = chosen_person
             curr_convo.convo_sides[person_name] = ConvoSide(chosen_person)
 
         return curr_convo.convo_sides[person_name]
 
-    def setup_convo(self, file_path: str) -> Convo:
+    def setup_convo(self, file_path: str) -> Union[Convo, None]:
 
         # Load json as string
-        with open(file_path, encoding = "utf8") as file_obj:
-            raw_json_str = file_obj.read()
+        try:
+            with open(file_path, encoding="utf8") as file_obj:
+                raw_json_str = file_obj.read()
+        except FileNotFoundError as err:
+            self.open_file_fail_count += 1
+            print(f"File: {file_path} not found")
+            print(err)
+            return None
 
         # Convert JSON to dictionary
         raw_convo = json.loads(raw_json_str)
@@ -75,7 +106,6 @@ class ConvoReader:
 
         return Convo(raw_convo["title"], curr_participants, is_active, is_group)
 
-
     def extract_json_files(self, json_list) -> List[SimpleNamespace]:
 
         message_list = []
@@ -83,10 +113,14 @@ class ConvoReader:
         # Extract all messages into single linked-list for sorting as
         # number/order is unknown
         for json_path in json_list:
-
             # Load json as string
-            with open(json_path, encoding = "utf8") as file_obj:
-                raw_json_str = file_obj.read()
+            try:
+                with open(json_path, encoding="utf8") as file_obj:
+                    raw_json_str = file_obj.read()
+            except FileNotFoundError as err:
+                self.open_file_fail_count += 1
+                print(f"File: {json_path} not found")
+                print(err)
 
             # Convert JSON to list of messages
             curr_json = json.loads(raw_json_str)["messages"]
@@ -96,11 +130,11 @@ class ConvoReader:
 
         return message_list
 
-    def get_start_time(self, messages) -> datetime.datetime:
-        return datetime.datetime.fromtimestamp(messages[0].timestamp_ms // 1000)
+    @staticmethod
+    def get_start_time(messages) -> datetime:
+        return datetime.fromtimestamp(messages[0].timestamp_ms // 1000)
 
-    
-    def extract_convo(self, file_path) -> Convo:
+    def extract_convo(self, file_path) -> Union[Convo, None]:
 
         # Identify all json files corresponding to conversation
         json_list = os.listdir(file_path)
@@ -109,16 +143,20 @@ class ConvoReader:
         # Add file path
         json_list = [file_path + "/" + x for x in json_list]
 
+        # Setup conversation using first file (e.g. extract participants)
         curr_convo = self.setup_convo(json_list[0])
+
+        if curr_convo is None:
+            return None
 
         # Get sorted list of messages
         messages_list = self.extract_json_files(json_list)
-        messages_list.sort(key=operator.attrgetter(self.timestamp_field_name))
+        sorted(messages_list, key=attrgetter("timestamp_ms"))
 
-        # Get first conversation side (unique combination of person and
-        # conversation)
+        # Get first conversation side (unique combination of person and conversation
         first_sender = messages_list[0].sender_name
         curr_convo_side = self.get_or_create_convo_side(curr_convo, first_sender)
+        # Initialise counters
         curr_block_msg_count = 0
         curr_block_char_count = 0
         curr_block_start_time = self.get_start_time(messages_list)
@@ -136,7 +174,7 @@ class ConvoReader:
                 # Update summary statistics
                 curr_convo_side.msg_count += curr_block_msg_count
                 curr_convo_side.char_count += curr_block_char_count
-                curr_convo_side.add_block_msg_count(curr_block_msg_count, curr_block_start_time)
+                curr_convo_side.add_block_msg_count(curr_block_start_time, curr_block_msg_count)
 
                 # Reset counters TODO: create separate function for counter reset?
                 curr_convo_side = self.get_or_create_convo_side(curr_convo, msg.sender_name)
