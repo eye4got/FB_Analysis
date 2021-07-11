@@ -1,6 +1,9 @@
 from datetime import *
 from typing import *
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 class Person:
 
@@ -22,6 +25,7 @@ class ConvoSide:
         # self.vocab = dict()
         # self.charBlockFreq = np.zeros(8)
         # self.replyTimeFreq = np.zeros(8)
+        self.msg_time_freq = np.zeros(24)
         # self.dailyMsgCount = []
         # self.dailyCharCount = []
         # self.reactPercent = [] # Only based on active days, as a proportion
@@ -41,6 +45,7 @@ class ConvoSide:
         output = "\t Side: " + self.get_name() + "\n"
         output += "Msg Count: " + str(self.msg_count) + "\n"
         output += "Char Count: " + str(self.char_count) + "\n"
+        output += "Msg Times Frequency: " + str(self.msg_time_freq) + "\n"
         return output
 
 
@@ -66,6 +71,21 @@ class Convo:
         for side in self.convo_sides.values():
             output += str(side) + "\n"
         return output
+
+    def create_msg_time_hist(self) -> plt.Figure:
+
+        # Create hourly labels for time histogram
+        # Create 2D array to match shape of series
+        hist_hours = [[str(x) + ":00" for x in range(24)] for x in range(len(self.convo_sides))]
+
+        ordered_sides = self.convo_sides.keys()
+        series_counts = [self.convo_sides[side].msg_time_freq for side in ordered_sides]
+
+        histogram = plt.figure(figsize=(14, 8))
+        plt.hist(hist_hours, bins=24, weights=series_counts, alpha=0.5)
+        plt.legend(ordered_sides, loc='upper left')
+
+        return histogram
 
 
 class User:
