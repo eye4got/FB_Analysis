@@ -2,8 +2,7 @@ import json
 import os
 import pathlib
 import re
-from operator import attrgetter
-from types import SimpleNamespace
+from datetime import *
 
 from django.utils.text import slugify
 
@@ -15,6 +14,15 @@ class ConvoReader:
     file_name_pattern = r"(message_\d{1}.json)"
     group_thread_type = "RegularGroup"
     text_msg_type = "Generic"
+
+    # Uses result of json normalisation, which combines names where nested
+    # FIXME: Incomplete
+    # TODO: do the same thing for fields outside of messages list in json?
+    facebook_field_names = {
+        "sender_name": "sender_name",
+        "timestamp_ms": "timestamp_ms",
+        "content": "text",
+    }
 
     def __init__(self, root_path: str, output_path: str, user_name: str, individual_convo=None):
 
@@ -32,7 +40,7 @@ class ConvoReader:
         self.open_file_fail_count = 0
         self.output_file_fail_count = 0
 
-        # TODO: switch to relative filepath (Why didn't I initially?)
+        # TODO: Why is this so deep, just take output path?
         self.output_with_root = root_path + "/" + output_path + "/"
 
         # Identify all conversations in directory
@@ -61,8 +69,6 @@ class ConvoReader:
 
             # Temporary solution to allow testing. GUI/output will be their own module(s)
             if curr_convo is not None:
-                curr_convo.msg_count = sum([x.msg_count for x in curr_convo.convo_sides.values()])
-
                 curr_output = self.output_with_root + "/" + slugify(curr_convo.convo_name)
                 pathlib.Path(curr_output).mkdir(parents=True, exist_ok=True)
 
@@ -75,8 +81,8 @@ class ConvoReader:
                     print(f"Could not output to: {curr_output}")
                     print(err)
 
-                # TODO: add handling of too many speakers (show top 5? cancel graph?)
-                curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")
+                # curr_convo.create_timeline_hist().savefig(curr_output + "/Timeline_Hist.jpeg")
+                # curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")
 
                 print(f"Complete: {curr_output}")
 
@@ -87,75 +93,35 @@ class ConvoReader:
         if self.output_file_fail_count > 0:
             print(f"{self.output_file_fail_count} file(s) could not be written to")
 
-    def get_or_create_convo_side(self, curr_convo: Convo, person_name: str) -> ConvoSide:
-
-        if not person_name in curr_convo.convo_sides:
-            if person_name in self.persons:
-                chosen_person = self.persons[person_name]
-            else:
-                chosen_person = Person(person_name)
-                self.persons[person_name] = chosen_person
-
-            curr_convo.participants[person_name] = chosen_person
-            curr_convo.convo_sides[person_name] = ConvoSide(chosen_person)
-
-        return curr_convo.convo_sides[person_name]
-
-    def setup_convo(self, file_path: str) -> Union[Convo, None]:
-
-        # Load json as string
-        try:
-            with open(file_path, encoding="utf8") as file_obj:
-                raw_json_str = file_obj.read()
-        except FileNotFoundError as err:
-            self.open_file_fail_count += 1
-            print(f"File: {file_path} not found")
-            print(err)
-            return None
-
-        # Convert JSON to dictionary
-        raw_convo = json.loads(raw_json_str)
-
-        # Get all participants from json object into list
-        convo_persons = [x["name"] for x in raw_convo["participants"]]
-
-        # Check participants for existing persons and create new persons where
-        # necessary
-        curr_participants = self.user.get_or_create_persons(convo_persons)
-
-        # TODO: verify there are no other thread types
-        is_group = raw_convo["thread_type"] == self.group_thread_type
-        is_active = raw_convo["is_still_participant"]
-
-        return Convo(raw_convo["title"], curr_participants, is_active, is_group)
-
-    def extract_json_files(self, json_list) -> List[SimpleNamespace]:
-
-        message_list = []
-
-        # Extract all messages into single linked-list for sorting as
-        # number/order is unknown
-        for json_path in json_list:
-            # Load json as string
-            try:
-                with open(json_path, encoding="utf8") as file_obj:
-                    raw_json_str = file_obj.read()
-            except FileNotFoundError as err:
-                self.open_file_fail_count += 1
-                print(f"File: {json_path} not found")
-                print(err)
-
-            # Convert JSON to list of messages
-            curr_json = json.loads(raw_json_str)["messages"]
-            processed_messages = [SimpleNamespace(**x) for x in curr_json]
-
-            message_list.extend(processed_messages)
-
-        return message_list
-
+    # TODO: Consider stripping out (static) cleaning methods into separate module/class?
     @staticmethod
-    def get_msg_time(msg) -> datetime:
-        return datetime.fromtimestamp(msg.timestamp_ms // 1000)
+    def encode_react(reactions_list):
+        # Empty values are read as floats, return an empty dictionary so that the apply(series) handles appropriately
+        if type(reactions_list) != list: return {}
+
+        # Create dict with actors names as keys in order to split out each persons
+        # reactions into columns to make counting etc easier for group chats
+        output_dict = {}
+        for ii, val in enumerate(reactions_list):
+            person_key = val['actor'].replace(" ", "_").lower() + "_reaction"
+            emoji = val["reaction"].encode('latin1').decode('utf-8')
+            output_dict[person_key] = emoji
+
+        if any(key not in ["alex_davison_reaction", "raine_bianchini_reaction"] for key in output_dict.keys()):
+            print(output_dict.keys())
+
+        return output_dict
+
+    def clean_msg_data(self, messages_df):
+        # Convert timestamp, reindex and use to sort
+        messages_df["timestamp_ms"] = messages_df["timestamp_ms"].apply(lambda x: datetime.fromtimestamp(x // 1000))
+        messages_df = messages_df.set_index("timestamp_ms").sort_index()
+
+        # Sort out reaction encoding and split out into a column for each participant's reaction
+        messages_df["reactions"] = messages_df["reactions"].apply(lambda x: self.encode_react(x))
+        messages_df = pd.concat([messages_df, messages_df["reactions"].apply(pd.Series)], axis=1)
+
+        return messages_df
 
     def extract_convo(self, file_path) -> Union[Convo, None]:
 
@@ -166,50 +132,35 @@ class ConvoReader:
         # Add file path
         json_list = [file_path + "/" + x for x in json_list]
 
-        # Setup conversation using first file (e.g. extract participants)
-        curr_convo = self.setup_convo(json_list[0])
+        # Setup conversation
+        raw_messages_df = pd.DataFrame()
 
-        if curr_convo is None:
-            return None
+        for path in json_list:
+            # Load json as string as its nesting doesn't allow direct normalisation
+            try:
+                with open(path) as file_obj:
+                    raw_json = json.load(file_obj)
+            except FileNotFoundError as err:
+                self.open_file_fail_count += 1
+                print(f"File: {path} not found")
+                print(err)
+                return None
 
-        # Get sorted list of messages
-        messages_list = self.extract_json_files(json_list)
-        sorted(messages_list, key=attrgetter("timestamp_ms"))
+            input_df = pd.json_normalize(raw_json["messages"])
+            raw_messages_df = raw_messages_df.append(input_df)
 
-        # Get first conversation side (unique combination of person and conversation
-        first_sender = messages_list[0].sender_name
-        curr_convo_side = self.get_or_create_convo_side(curr_convo, first_sender)
+        messages_df = self.clean_msg_data(raw_messages_df)
 
-        # Initialise counters
-        curr_block_msg_count = 0
-        curr_block_char_count = 0
-        curr_block_start_time = self.get_msg_time(messages_list[0])
+        # Get all participants from last json object into list
+        convo_persons = [x["name"] for x in raw_json["participants"]]
 
-        # Extract first person to send a message
-        curr_convo.convo_starter = curr_convo_side.person
+        # Check participants for existing persons and create new persons where necessary
+        curr_participants = self.user.get_or_create_persons(convo_persons)
 
-        for msg in messages_list:
-            if msg.sender_name != curr_convo_side.get_name():
-                # Update summary statistics
-                curr_convo_side.msg_count += curr_block_msg_count
-                curr_convo_side.char_count += curr_block_char_count
-                curr_convo_side.add_block_msg_count(curr_block_start_time, curr_block_msg_count)
+        # TODO: verify there are no other thread types
+        is_group = raw_json["thread_type"] == self.group_thread_type
+        is_active = raw_json["is_still_participant"]
 
-                # Reset counters TODO: create separate function for counter reset? (e.g. create ConvoBlock class)
-                curr_convo_side = self.get_or_create_convo_side(curr_convo, msg.sender_name)
-                curr_block_msg_count = 0
-                curr_block_char_count = 0
-                curr_block_start_time = self.get_msg_time(msg)
+        # messages_df = messages_df.rena
 
-            curr_block_msg_count += 1
-
-            # Add character counts where applicable
-            if msg.type == self.text_msg_type and hasattr(msg, "content"):
-                curr_block_char_count += len(msg.content)
-
-            # Increment hour of the day when message was sent
-            curr_convo_side.msg_time_freq[curr_block_start_time.hour - 1] += 1
-
-        del messages_list
-
-        return curr_convo
+        return Convo(raw_json["title"], curr_participants, is_active, is_group, messages_df)

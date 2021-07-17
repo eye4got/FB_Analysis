@@ -10,6 +10,7 @@ Individual Message Structure
 - sender_name
 - timestamp_ms
 - content(?) (need to clean for \n)
+    - not mandatory, exclusions include: photos, files, audio_files, stickers
 - photos(?)
 	- uri, file location (format: messages/inbox/<chat_name>/photos/<file_name.jpg>)
 	- creation_timestamp
