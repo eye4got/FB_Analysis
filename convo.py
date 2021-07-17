@@ -12,6 +12,16 @@ class Person:
 
 
 class Convo:
+    count_cols = {
+        "sender_name": "Messages",
+        "photos": "Photos",
+        "share_link": "Links",
+        "sticker_path": "Stickers",
+        "call_duration": "Successful Calls",
+        "videos": "Videos",
+        "audio_files": "Voice Memos",
+        "gifs": "GIFs",
+    }
 
     def __init__(self, name: str, participants: Dict[str, Person], is_active: bool, is_group: bool,
                  messages_df: pd.DataFrame):
@@ -27,11 +37,29 @@ class Convo:
         output = 'Conversation Name: ' + self.convo_name + '\n'
         output += 'Participants: ' + ', '.join(self.participants.keys()) + '\n\n'
 
-        grouped_for_counts = self.messages_df.groupby("sender_name")
-        # Perform separately and join as using agg for both steps duplicated columns or required too much customisation
-        counts_df = grouped_for_counts.count()
-        counts_df['Messages'] = grouped_for_counts.size()
-        # TODO: rename and order columns (drop columns such as is_unsent)
+        subset_cols = ["sender_name", "photos", "share_link", "sticker_path", "call_duration", "videos",
+                       "files", "audio_files", "missed_call", "gifs"]
+        reaction_cols = [x for x in self.messages_df.columns if "_reaction" in x]
+        subset_cols.extend(reaction_cols)
+
+        # Media Columns have counts of elements per message, need to sum these instead of counting
+        media_cols = ["photos", "videos", "audio_files", "files"]
+        agg_method = {}
+        for col in subset_cols:
+            agg_method[col] = ["count"] if col not in media_cols else ["sum"]
+
+        # Apply aggregation methods determined by above dict
+        counts_df = self.messages_df[subset_cols].groupby("sender_name").agg(agg_method)
+
+        counts_df['call_duration'] -= counts_df['missed_call']  # Remove calls with 0 duration
+
+        # Collapse multi-index columns, rename using class field dictionary and prettified reaction cols
+        cleaned_reaction_cols = [x.replace("_", " ").title() for x in reaction_cols]
+        renamed_count_cols = {**Convo.count_cols, **dict(zip(reaction_cols, cleaned_reaction_cols))}
+
+        counts_df.columns = counts_df.columns.get_level_values(0)
+        counts_df.rename(columns=renamed_count_cols, inplace=True)
+
         output += tabulate(counts_df, headers=counts_df.columns)
 
         return output

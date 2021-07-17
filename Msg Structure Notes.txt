@@ -11,17 +11,21 @@ Individual Message Structure
 - timestamp_ms
 - content(?) (need to clean for \n)
     - not mandatory, exclusions include: photos, files, audio_files, stickers
+    - For calls, creates text: "You called X." or "X missed your call."
+    - For Share, content can be some kind of link
+        - Or in live location's case: "You sent a live location.", limited other fields
 - photos(?)
 	- uri, file location (format: messages/inbox/<chat_name>/photos/<file_name.jpg>)
 	- creation_timestamp
 - reactions (list, dict)
 	- reaction 
 	- actor
-- type ("Generic", "Share")
+- type ("Generic", "Share", "Call")
 - share (only for share)
     - link "text"
 - ip: text
 - is_unsent (bool)
+- missing (bool, only for a missed Call)
 
 
 {

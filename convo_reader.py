@@ -16,12 +16,25 @@ class ConvoReader:
     text_msg_type = "Generic"
 
     # Uses result of json normalisation, which combines names where nested
-    # FIXME: Incomplete
     # TODO: do the same thing for fields outside of messages list in json?
+    # TODO: identify dictionaries in fields below and flatten where relevant
     facebook_field_names = {
         "sender_name": "sender_name",
         "timestamp_ms": "timestamp_ms",
         "content": "text",
+        "reactions": "reactions_dict",
+        "type": "major_type",
+        "is_unsent": "is_unsent",
+        "photos": "photos",
+        "share.link": "share_link",
+        "sticker.uri": "sticker_path",
+        "call_duration": "call_duration",
+        "videos": "videos",
+        "share.share_text": "share_text",
+        "files": "files",
+        "audio_files": "audio_files",
+        "missed": "missed_call",
+        "gifs": "gifs"
     }
 
     def __init__(self, root_path: str, output_path: str, user_name: str, individual_convo=None):
@@ -103,25 +116,29 @@ class ConvoReader:
         # reactions into columns to make counting etc easier for group chats
         output_dict = {}
         for ii, val in enumerate(reactions_list):
-            person_key = val['actor'].replace(" ", "_").lower() + "_reaction"
+            person_key = val['actor'].replace(" ", "_").lower() + "_reactions"
             emoji = val["reaction"].encode('latin1').decode('utf-8')
             output_dict[person_key] = emoji
 
-        if any(key not in ["alex_davison_reaction", "raine_bianchini_reaction"] for key in output_dict.keys()):
-            print(output_dict.keys())
-
         return output_dict
 
-    def clean_msg_data(self, messages_df):
+    def clean_msg_data(self, msgs_df):
         # Convert timestamp, reindex and use to sort
-        messages_df["timestamp_ms"] = messages_df["timestamp_ms"].apply(lambda x: datetime.fromtimestamp(x // 1000))
-        messages_df = messages_df.set_index("timestamp_ms").sort_index()
+        msgs_df["timestamp_ms"] = msgs_df["timestamp_ms"].apply(lambda x: datetime.fromtimestamp(x // 1000))
+        msgs_df = msgs_df.set_index("timestamp_ms").sort_index()
 
         # Sort out reaction encoding and split out into a column for each participant's reaction
-        messages_df["reactions"] = messages_df["reactions"].apply(lambda x: self.encode_react(x))
-        messages_df = pd.concat([messages_df, messages_df["reactions"].apply(pd.Series)], axis=1)
+        msgs_df["reactions"] = msgs_df["reactions"].apply(lambda x: self.encode_react(x))
+        msgs_df = pd.concat([msgs_df, msgs_df["reactions"].apply(pd.Series)], axis=1)
 
-        return messages_df
+        # Extract video and photo counts (don't need nested uris)
+        media_cols = ["photos", "videos", "audio_files", "files"]
+        for col in media_cols:
+            msgs_df[col] = msgs_df[col].apply(lambda x: len(x) if type(x) == list else 0)
+
+        msgs_df.rename(columns=ConvoReader.facebook_field_names, inplace=True)
+
+        return msgs_df
 
     def extract_convo(self, file_path) -> Union[Convo, None]:
 
@@ -132,8 +149,8 @@ class ConvoReader:
         # Add file path
         json_list = [file_path + "/" + x for x in json_list]
 
-        # Setup conversation
-        raw_messages_df = pd.DataFrame()
+        # Setup conversation Dataframe, loop through each JSON file and append new rows
+        raw_messages_df = pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())
 
         for path in json_list:
             # Load json as string as its nesting doesn't allow direct normalisation
@@ -157,10 +174,7 @@ class ConvoReader:
         # Check participants for existing persons and create new persons where necessary
         curr_participants = self.user.get_or_create_persons(convo_persons)
 
-        # TODO: verify there are no other thread types
         is_group = raw_json["thread_type"] == self.group_thread_type
         is_active = raw_json["is_still_participant"]
-
-        # messages_df = messages_df.rena
 
         return Convo(raw_json["title"], curr_participants, is_active, is_group, messages_df)
