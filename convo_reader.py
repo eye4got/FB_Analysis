@@ -20,7 +20,7 @@ class ConvoReader:
     # TODO: identify dictionaries in fields below and flatten where relevant
     facebook_field_names = {
         "sender_name": "sender_name",
-        "timestamp_ms": "timestamp_ms",
+        "timestamp_ms": "timestamp",
         "content": "text",
         "reactions": "reactions_dict",
         "type": "major_type",
@@ -37,7 +37,7 @@ class ConvoReader:
         "gifs": "gifs"
     }
 
-    def __init__(self, root_path: str, output_path: str, user_name: str, individual_convo=None):
+    def __init__(self, root_path: str, user_name: str):
 
         if root_path[-1] != "/":
             root_path += "/"
@@ -53,27 +53,13 @@ class ConvoReader:
         self.open_file_fail_count = 0
         self.output_file_fail_count = 0
 
-        # TODO: Why is this so deep, just take output path?
-        self.output_with_root = root_path + "/" + output_path + "/"
+    def generate_output(self, output_path: str, individual_convo=None):
 
         # Identify all conversations in directory
         convo_list = os.listdir(self.file_path)
 
         if individual_convo is not None:
-            # Clean name
-            cleaned_convo_input = individual_convo.lower().replace(" ", "")
-
-            # Check if identified conversation exists
-            ## Find folders which start with their name (groupchats can contain all names in alpha order)
-            regex_str = re.compile(cleaned_convo_input + "_.+")
-            matches = list(filter(lambda x: regex_str.match(x), convo_list))
-
-            if len(matches) == 0:
-                raise FileNotFoundError("Specified conversation: " + individual_convo + " does not exist")
-            else:
-                ## Find shortest folder name (to find convo with just them)
-                fb_convo_str = min(matches, key=len)
-                convo_list = [fb_convo_str]
+            convo_list = [self.find_individual_convo_path(individual_convo, convo_list)]
 
         # Extract each conversation
         for convo_path in convo_list:
@@ -82,7 +68,7 @@ class ConvoReader:
 
             # Temporary solution to allow testing. GUI/output will be their own module(s)
             if curr_convo is not None:
-                curr_output = self.output_with_root + "/" + slugify(curr_convo.convo_name)
+                curr_output = output_path + "/" + slugify(curr_convo.convo_name)
                 pathlib.Path(curr_output).mkdir(parents=True, exist_ok=True)
 
                 try:
@@ -106,6 +92,52 @@ class ConvoReader:
         if self.output_file_fail_count > 0:
             print(f"{self.output_file_fail_count} file(s) could not be written to")
 
+    def extract_convo(self, file_path) -> Union[Convo, None]:
+
+        # Identify all json files corresponding to conversation
+        json_list = os.listdir(file_path)
+        json_list = [x for x in json_list if re.match(self.file_name_pattern, x)]
+
+        # Add file path
+        json_list = [file_path + "/" + x for x in json_list]
+
+        # Setup conversation Dataframe, loop through each JSON file and append new rows
+        raw_msgs_df = pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())
+
+        for path in json_list:
+            # Load json as string as its nesting doesn't allow direct normalisation
+            try:
+                with open(path) as file_obj:
+                    raw_json = json.load(file_obj)
+            except FileNotFoundError as err:
+                self.open_file_fail_count += 1
+                print(f"File: {path} not found")
+                print(err)
+                return None
+
+            input_df = pd.json_normalize(raw_json["messages"])
+            raw_msgs_df = raw_msgs_df.append(input_df)
+
+        msgs_df = self.clean_msg_data(raw_msgs_df)
+
+        # Get all speakers from last json object into list
+        convo_persons = [x["name"] for x in raw_json["participants"]]
+
+        # Check speakers for existing persons and create new persons where necessary
+        curr_speakers = self.user.get_or_create_persons(convo_persons)
+
+        is_group = raw_json["thread_type"] == self.group_thread_type
+        is_active = raw_json["is_still_participant"]
+
+        return Convo(raw_json["title"], curr_speakers, is_active, is_group, msgs_df)
+
+    def extract_convo_from_name(self, individual_name: str) -> Union[Convo, None]:
+        # Wrapper method for extract_convo when running in isolation and filepath is unknown
+        convo_list = os.listdir(self.file_path)
+        convo_filepath = self.find_individual_convo_path(individual_name, convo_list)
+
+        return self.extract_convo(self.file_path + "/" + convo_filepath)
+
     # TODO: Consider stripping out (static) cleaning methods into separate module/class?
     @staticmethod
     def encode_react(reactions_list):
@@ -123,58 +155,41 @@ class ConvoReader:
         return output_dict
 
     def clean_msg_data(self, msgs_df):
-        # Convert timestamp, reindex and use to sort
-        msgs_df["timestamp_ms"] = msgs_df["timestamp_ms"].apply(lambda x: datetime.fromtimestamp(x // 1000))
-        msgs_df = msgs_df.set_index("timestamp_ms").sort_index()
 
-        # Sort out reaction encoding and split out into a column for each participant's reaction
-        msgs_df["reactions"] = msgs_df["reactions"].apply(lambda x: self.encode_react(x))
-        msgs_df = pd.concat([msgs_df, msgs_df["reactions"].apply(pd.Series)], axis=1)
+        msgs_df.rename(columns=ConvoReader.facebook_field_names, inplace=True)
+
+        # Convert timestamp, reindex and use to sort
+        msgs_df["timestamp"] = msgs_df["timestamp"].apply(lambda x: datetime.fromtimestamp(x // 1000))
+        msgs_df = msgs_df.set_index("timestamp").sort_index()
+
+        # Sort out reaction encoding and split out into a column for each speaker's reaction
+        msgs_df["reactions_dict"] = msgs_df["reactions_dict"].apply(lambda x: self.encode_react(x))
+        msgs_df = pd.concat([msgs_df, msgs_df["reactions_dict"].apply(pd.Series)], axis=1)
 
         # Extract video and photo counts (don't need nested uris)
         media_cols = ["photos", "videos", "audio_files", "files"]
         for col in media_cols:
             msgs_df[col] = msgs_df[col].apply(lambda x: len(x) if type(x) == list else 0)
 
-        msgs_df.rename(columns=ConvoReader.facebook_field_names, inplace=True)
-
         return msgs_df
 
-    def extract_convo(self, file_path) -> Union[Convo, None]:
+    @staticmethod
+    def find_individual_convo_path(individual_name: str, convo_list: List[str]) -> str:
+        # Finds filepath associated with conversation as Facebook adds alphanumeric junk at the end of the folder name
+        # Priorities 1-1 conversations over group-chats where unclear
 
-        # Identify all json files corresponding to conversation
-        json_list = os.listdir(file_path)
-        json_list = [x for x in json_list if re.match(self.file_name_pattern, x)]
+        # Clean name
+        cleaned_convo_input = individual_name.lower().replace(" ", "")
 
-        # Add file path
-        json_list = [file_path + "/" + x for x in json_list]
+        # Check if identified conversation exists
+        ## Find folders which start with their name (group chats can contain all names in alpha order)
+        regex_str = re.compile(cleaned_convo_input + "_.+")
+        matches = list(filter(lambda x: regex_str.match(x), convo_list))
 
-        # Setup conversation Dataframe, loop through each JSON file and append new rows
-        raw_messages_df = pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())
+        if len(matches) == 0:
+            raise FileNotFoundError("Specified conversation: " + individual_name + " does not exist")
+        else:
+            ## Find shortest folder name (to find convo with just them)
+            fb_convo_str = min(matches, key=len)
 
-        for path in json_list:
-            # Load json as string as its nesting doesn't allow direct normalisation
-            try:
-                with open(path) as file_obj:
-                    raw_json = json.load(file_obj)
-            except FileNotFoundError as err:
-                self.open_file_fail_count += 1
-                print(f"File: {path} not found")
-                print(err)
-                return None
-
-            input_df = pd.json_normalize(raw_json["messages"])
-            raw_messages_df = raw_messages_df.append(input_df)
-
-        messages_df = self.clean_msg_data(raw_messages_df)
-
-        # Get all participants from last json object into list
-        convo_persons = [x["name"] for x in raw_json["participants"]]
-
-        # Check participants for existing persons and create new persons where necessary
-        curr_participants = self.user.get_or_create_persons(convo_persons)
-
-        is_group = raw_json["thread_type"] == self.group_thread_type
-        is_active = raw_json["is_still_participant"]
-
-        return Convo(raw_json["title"], curr_participants, is_active, is_group, messages_df)
+        return fb_convo_str

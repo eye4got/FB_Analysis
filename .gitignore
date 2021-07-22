@@ -8,6 +8,7 @@ __pycache__/
 
 # Personal Data and output
 raw_data/*
+output/*
 
 # Distribution / packaging
 .Python
