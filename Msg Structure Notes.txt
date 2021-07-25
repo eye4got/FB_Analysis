@@ -20,7 +20,7 @@ Individual Message Structure
 - reactions (list, dict)
 	- reaction 
 	- actor
-- type ("Generic", "Share", "Call")
+- type ("Generic", "Share", "Call", "Unsubscribe")
 - share (only for share)
     - link "text"
 - ip: text

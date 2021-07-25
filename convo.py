@@ -1,3 +1,4 @@
+from datetime import *
 from typing import *
 
 import matplotlib.pyplot as plt
@@ -10,7 +11,7 @@ class Person:
 
     def __init__(self, name: str):
         self.name = name
-        self.convoSides = []
+        # TODO: add links to conversations?
 
 
 class Convo:
@@ -98,19 +99,42 @@ class Convo:
         plt.hist(hist_hours, bins=np.arange(25) - 0.5, weights=hours_series.T, alpha=0.5)
         plt.legend(sorted([side.name for side in speaker_subset.values()]), loc='upper left')
         plt.title("Histogram of Frequencies of Messages by Sender and Hour of the Day for " + self.convo_name)
-        plt.show()
+        plt.close()
 
         return histogram
 
-    # def create_timeline_hist(self) -> plt.Figure:
-    #     convo_sides_list = list(self.convo_sides.values())
-    #
-    #     histogram = plt.figure(figsize=(14, 8))
-    #     msg_times = [side.multi_msg_counts for side in convo_sides_list]
-    #     plt.hist([side.multi_msg_counts for side in convo_sides_list])
-    #     plt.legend([side.person.name for side in convo_sides_list], loc='upper left')
-    #
-    #     return histogram
+    def create_timeline_hist(self) -> plt.Figure:
+
+        if self.top_speakers is None:
+            speaker_subset = self.speakers
+            subset_msgs_df = self.msgs_df
+        else:
+            speaker_subset = self.top_speakers
+            subset_msgs_df = self.msgs_df[self.msgs_df['sender_name'].isin(speaker_subset.keys())]
+
+        # TODO: raw count vs characters per unit time? (Create point equivalents for actions?)
+
+        # Create character counts for each message (simplifying chaining process and allowing future change)
+        text_lengths = subset_msgs_df['text'].apply(lambda x: len(x) if type(x) == str else 0)
+        subset_msgs_df = subset_msgs_df.assign(text_len=text_lengths.values)
+
+        # Calculate sums of message character counts for each week for each sender
+        weekly_counts = subset_msgs_df.groupby('sender_name').resample('W')['text_len'].sum()
+
+        fig, axs = plt.subplots(len(speaker_subset.keys()), 1, figsize=(16, 8))
+        fig.suptitle("Weekly Histogram of Character Counts for " + self.convo_name)
+
+        for ii, speaker in enumerate(speaker_subset.keys()):
+            bins = weekly_counts[speaker].index - timedelta(3)
+            axs[ii].hist(weekly_counts[speaker].index, bins=bins, weights=weekly_counts[speaker].values, alpha=0.8)
+            axs[ii].set_xlabel(speaker)
+            axs[ii].grid(True)
+
+        axs[len(speaker_subset.keys()) - 1].set_title('Time')
+        fig.tight_layout()
+        plt.close()
+
+        return fig
 
 
 class User:
@@ -129,8 +153,7 @@ class User:
         for person in name_list:
             if not person in self.persons:
                 self.persons[person] = Person(person)
-            # Extract instances of person for assignment to avoid instance
-            # duplication
+            # Extract instances of person for assignment to avoid instance duplication
             selected_persons[person] = self.persons[person]
 
         # TODO: Overall summary stats (e.g. convo starting)

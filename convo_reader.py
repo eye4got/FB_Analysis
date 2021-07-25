@@ -2,7 +2,6 @@ import json
 import os
 import pathlib
 import re
-from datetime import *
 
 from django.utils.text import slugify
 
@@ -52,6 +51,7 @@ class ConvoReader:
 
         self.open_file_fail_count = 0
         self.output_file_fail_count = 0
+        self.empty_convo_count = 0
 
     def generate_output(self, output_path: str, individual_convo=None):
 
@@ -63,11 +63,12 @@ class ConvoReader:
 
         # Extract each conversation
         for convo_path in convo_list:
+            print(f"{convo_path}: ", end='')
             curr_convo = self.extract_convo(self.file_path + convo_path)
-            self.user.convos[curr_convo.convo_name] = curr_convo
 
             # Temporary solution to allow testing. GUI/output will be their own module(s)
             if curr_convo is not None:
+                self.user.convos[curr_convo.convo_name] = curr_convo
                 curr_output = output_path + "/" + slugify(curr_convo.convo_name)
                 pathlib.Path(curr_output).mkdir(parents=True, exist_ok=True)
 
@@ -80,10 +81,13 @@ class ConvoReader:
                     print(f"Could not output to: {curr_output}")
                     print(err)
 
-                # curr_convo.create_timeline_hist().savefig(curr_output + "/Timeline_Hist.jpeg")
-                # curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")
+                curr_convo.create_timeline_hist().savefig(curr_output + "/Timeline_Hist.jpeg")
+                curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")
 
-                print(f"Complete: {curr_output}")
+                print("Complete")
+
+            else:
+                print("Failed")
 
         # Output is temporary, counters will need to be provided to output/UI though
         if self.open_file_fail_count > 0:
@@ -91,6 +95,10 @@ class ConvoReader:
 
         if self.output_file_fail_count > 0:
             print(f"{self.output_file_fail_count} file(s) could not be written to")
+
+        if self.empty_convo_count > 0:
+            # TODO: opportunity for statistic around number of FB friends actually spoken to
+            print(f"{self.empty_convo_count} conversations were empty")
 
     def extract_convo(self, file_path) -> Union[Convo, None]:
 
@@ -120,8 +128,13 @@ class ConvoReader:
 
         msgs_df = self.clean_msg_data(raw_msgs_df)
 
-        # Get all speakers from last json object into list
-        convo_persons = [x["name"] for x in raw_json["participants"]]
+        # Get all speakers from messages (includes people who have been removed from the conversation)
+        convo_persons = list(raw_msgs_df['sender_name'].unique())
+
+        # Remove conversations where only one person has sent a message (conversations are initalised with one msg)
+        if len(convo_persons) < 2:
+            self.empty_convo_count += 1
+            return None
 
         # Check speakers for existing persons and create new persons where necessary
         curr_speakers = self.user.get_or_create_persons(convo_persons)
