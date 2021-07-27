@@ -91,14 +91,14 @@ class ConvoReader:
 
         # Output is temporary, counters will need to be provided to output/UI though
         if self.open_file_fail_count > 0:
-            print(f"{self.open_file_fail_count} file(s) could not be opened")
+            print(f"\n{self.open_file_fail_count} file(s) could not be opened")
 
         if self.output_file_fail_count > 0:
-            print(f"{self.output_file_fail_count} file(s) could not be written to")
+            print(f"\n{self.output_file_fail_count} file(s) could not be written to")
 
         if self.empty_convo_count > 0:
             # TODO: opportunity for statistic around number of FB friends actually spoken to
-            print(f"{self.empty_convo_count} conversations were empty")
+            print(f"\n{self.empty_convo_count} conversations were empty")
 
     def extract_convo(self, file_path) -> Union[Convo, None]:
 

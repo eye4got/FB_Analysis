@@ -17,13 +17,16 @@ class Person:
 class Convo:
     count_cols = {
         "sender_name": "Messages",
+        "text_len": "Character Count",
         "photos": "Photos",
+        "call_duration": "Successful Calls",
+        "missed_call": "Missed Calls",
+        "videos": "Videos",
+        "gifs": "GIFs",
+        "files": "Files",
         "share_link": "Links",
         "sticker_path": "Stickers",
-        "call_duration": "Successful Calls",
-        "videos": "Videos",
-        "audio_files": "Voice Memos",
-        "gifs": "GIFs",
+        "audio_files": "Voice Memos"
     }
 
     def __init__(self, name: str, speakers: Dict[str, Person], is_active: bool, is_group: bool,
@@ -48,18 +51,21 @@ class Convo:
         # Add categorical hour of day column
         self.msgs_df['hour_of_day'] = self.msgs_df.index.map(lambda x: x.hour)
 
+        # Create character counts for each message
+        self.msgs_df['text_len'] = self.msgs_df['text'].apply(lambda x: len(x) if type(x) == str else 0)
+
     def __str__(self) -> str:  # TODO: see if there are neater ways to output strings
         output = 'Conversation Name: ' + self.convo_name + '\n'
         output += 'Participants: ' + ', '.join(self.speakers.keys()) + '\n\n'
 
-        subset_cols = ["sender_name", "photos", "share_link", "sticker_path", "call_duration", "videos",
+        subset_cols = ["sender_name", "text_len", "photos", "share_link", "sticker_path", "call_duration", "videos",
                        "files", "audio_files", "missed_call", "gifs"]
         reaction_cols = [x for x in self.msgs_df.columns if "_reaction" in x]
         subset_cols.extend(reaction_cols)
 
         # Media Columns have counts of elements per message, need to sum these instead of counting
-        media_cols = ["photos", "videos", "audio_files", "files"]
         agg_method = {}
+        media_cols = ["photos", "videos", "audio_files", "files", "text_len"]
         for col in subset_cols:
             agg_method[col] = ["count"] if col not in media_cols else ["sum"]
 
@@ -98,6 +104,7 @@ class Convo:
         histogram = plt.figure(figsize=(14, 8))
         plt.hist(hist_hours, bins=np.arange(25) - 0.5, weights=hours_series.T, alpha=0.5)
         plt.legend(sorted([side.name for side in speaker_subset.values()]), loc='upper left')
+        # FIXME: handle issues with accented characters in names
         plt.title("Histogram of Frequencies of Messages by Sender and Hour of the Day for " + self.convo_name)
         plt.close()
 
@@ -113,10 +120,6 @@ class Convo:
             subset_msgs_df = self.msgs_df[self.msgs_df['sender_name'].isin(speaker_subset.keys())]
 
         # TODO: raw count vs characters per unit time? (Create point equivalents for actions?)
-
-        # Create character counts for each message (simplifying chaining process and allowing future change)
-        text_lengths = subset_msgs_df['text'].apply(lambda x: len(x) if type(x) == str else 0)
-        subset_msgs_df = subset_msgs_df.assign(text_len=text_lengths.values)
 
         # Calculate sums of message character counts for each week for each sender
         weekly_counts = subset_msgs_df.groupby('sender_name').resample('W')['text_len'].sum()
@@ -136,14 +139,25 @@ class Convo:
 
         return fig
 
+    def serialise(self, filepath: str):
+        raise NotImplementedError
+        # TODO: Need to consider what must be kept in memory vs what should be stored (e.g. inventory of convos?)
+        # Storing between sessions?
+        # feather.write_feather(self.msgs_df, filepath + "msg_df.feather")
+
 
 class User:
 
     def __init__(self, name: str, root_path: str):
         self.name = name
         self.root_path = root_path
-        self.convos = dict()
-        self.persons = dict()
+        self.convos: Dict[str, Convo] = dict()
+        self.persons: Dict[str, Person] = dict()
+
+    def create_top_user_timeline(self):
+        # Identify start time
+        start_time = min(x.start_time for x in self.convos.values())
+        # TODO: incomplete
 
     def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
 
