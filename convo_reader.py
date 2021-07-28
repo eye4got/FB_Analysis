@@ -53,9 +53,9 @@ class ConvoReader:
         self.output_file_fail_count = 0
         self.empty_convo_count = 0
 
-    def generate_output(self, output_path: str, individual_convo=None):
+    def read_convos(self, output_path: str, individual_convo: str = None, create_files: bool = False):
 
-        # Identify all conversations in directory
+        # Identify all conversations in directory (needed even for individual convo, to search for FB file names)
         convo_list = os.listdir(self.file_path)
 
         if individual_convo is not None:
@@ -64,25 +64,14 @@ class ConvoReader:
         # Extract each conversation
         for convo_path in convo_list:
             print(f"{convo_path}: ", end='')
-            curr_convo = self.extract_convo(self.file_path + convo_path)
+            curr_convo = self.extract_single_convo(self.file_path + convo_path)
 
-            # Temporary solution to allow testing. GUI/output will be their own module(s)
             if curr_convo is not None:
                 self.user.convos[curr_convo.convo_name] = curr_convo
-                curr_output = output_path + "/" + slugify(curr_convo.convo_name)
-                pathlib.Path(curr_output).mkdir(parents=True, exist_ok=True)
 
-                try:
-                    with open(curr_output + "/desc.txt", "w", encoding="utf8") as file_obj:
-                        file_obj.write(str(curr_convo))
-
-                except IOError as err:
-                    self.output_file_fail_count += 1
-                    print(f"Could not output to: {curr_output}")
-                    print(err)
-
-                curr_convo.create_timeline_hist().savefig(curr_output + "/Timeline_Hist.jpeg")
-                curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")
+                if create_files:
+                    # Temporary solution to allow testing. GUI/output will be their own module(s)
+                    self.output_files(curr_convo, output_path)
 
                 print("Complete")
 
@@ -100,7 +89,7 @@ class ConvoReader:
             # TODO: opportunity for statistic around number of FB friends actually spoken to
             print(f"\n{self.empty_convo_count} conversations were empty")
 
-    def extract_convo(self, file_path) -> Union[Convo, None]:
+    def extract_single_convo(self, file_path) -> Union[Convo, None]:
 
         # Identify all json files corresponding to conversation
         json_list = os.listdir(file_path)
@@ -116,7 +105,8 @@ class ConvoReader:
             # Load json as string as its nesting doesn't allow direct normalisation
             try:
                 with open(path) as file_obj:
-                    raw_json = json.load(file_obj)
+                    raw_json_file_str = file_obj.read().encode('latin1').decode('utf-8')
+                    raw_json = json.loads(raw_json_file_str)
             except FileNotFoundError as err:
                 self.open_file_fail_count += 1
                 print(f"File: {path} not found")
@@ -127,9 +117,7 @@ class ConvoReader:
             raw_msgs_df = raw_msgs_df.append(input_df)
 
         msgs_df = self.clean_msg_data(raw_msgs_df)
-
-        # Get all speakers from messages (includes people who have been removed from the conversation)
-        convo_persons = list(raw_msgs_df['sender_name'].unique())
+        convo_persons = list(msgs_df['sender_name'].unique())
 
         # Remove conversations where only one person has sent a message (conversations are initalised with one msg)
         if len(convo_persons) < 2:
@@ -141,25 +129,21 @@ class ConvoReader:
 
         is_group = raw_json["thread_type"] == self.group_thread_type
         is_active = raw_json["is_still_participant"]
+        title = raw_json["title"].encode('latin1').decode('utf-8')
 
-        return Convo(raw_json["title"], curr_speakers, is_active, is_group, msgs_df)
-
-    def extract_convo_from_name(self, individual_name: str) -> Union[Convo, None]:
-        # Wrapper method for extract_convo when running in isolation and filepath is unknown
-        convo_list = os.listdir(self.file_path)
-        convo_filepath = self.find_individual_convo_path(individual_name, convo_list)
-
-        return self.extract_convo(self.file_path + "/" + convo_filepath)
+        return Convo(title, curr_speakers, is_active, is_group, msgs_df)
 
     # TODO: Consider stripping out (static) cleaning methods into separate module/class?
     @staticmethod
-    def encode_react(reactions_list):
+    def restructure_reactions(reactions_list):
+        # Converts FB's reaction dictionary from a list with multiple entries into one dictionary linking people and
+        # their reaction. Enables splitting into cols to make counting etc easier for group chats
+
         # Empty values are read as floats, return an empty dictionary so that the apply(series) handles appropriately
         if type(reactions_list) != list: return {}
 
-        # Create dict with actors names as keys in order to split out each persons
-        # reactions into columns to make counting etc easier for group chats
         output_dict = {}
+
         for ii, val in enumerate(reactions_list):
             person_key = val['actor'].replace(" ", "_").lower() + "_reactions"
             emoji = val["reaction"].encode('latin1').decode('utf-8')
@@ -176,7 +160,7 @@ class ConvoReader:
         msgs_df = msgs_df.set_index("timestamp").sort_index()
 
         # Sort out reaction encoding and split out into a column for each speaker's reaction
-        msgs_df["reactions_dict"] = msgs_df["reactions_dict"].apply(lambda x: self.encode_react(x))
+        msgs_df["reactions_dict"] = msgs_df["reactions_dict"].apply(lambda x: self.restructure_reactions(x))
         msgs_df = pd.concat([msgs_df, msgs_df["reactions_dict"].apply(pd.Series)], axis=1)
 
         # Extract video and photo counts (don't need nested uris)
@@ -206,3 +190,19 @@ class ConvoReader:
             fb_convo_str = min(matches, key=len)
 
         return fb_convo_str
+
+    def output_files(self, curr_convo: Convo, output_path: str):
+        curr_output = output_path + "/" + slugify(curr_convo.convo_name)
+        pathlib.Path(curr_output).mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(curr_output + "/desc.txt", "w", encoding="utf8") as file_obj:
+                file_obj.write(str(curr_convo))
+
+        except IOError as err:
+            self.output_file_fail_count += 1
+            print(f"Could not output to: {curr_output}")
+            print(err)
+
+        curr_convo.create_timeline_hist().savefig(curr_output + "/Timeline_Hist.jpeg")
+        curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")

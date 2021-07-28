@@ -36,7 +36,7 @@ class Convo:
         self.start_time = messages_df.index[0]
         self.is_active = is_active
         self.is_group = is_group
-        self.msg_count = messages_df.count()
+        self.msg_count = messages_df.shape[0]
         self.msgs_df = messages_df
         self.top_speakers = None
 
@@ -153,6 +153,21 @@ class User:
         self.root_path = root_path
         self.convos: Dict[str, Convo] = dict()
         self.persons: Dict[str, Person] = dict()
+
+    def get_ranked_convo_by_msg_count(self, n: int = 100, no_groupchats: bool = False):
+        # n is the number of convos returned, for n < 1, all results will be returned
+
+        if no_groupchats:
+            counts = [(x.msg_count, x.convo_name) for x in self.convos.values() if len(x.speakers.keys()) == 2]
+        else:
+            counts = [(x.msg_count, x.convo_name) for x in self.convos.values()]
+
+        counts = sorted(counts, key=lambda x: x[0], reverse=True)
+
+        if n > 1:
+            counts = counts[:n]
+
+        return counts
 
     def create_top_user_timeline(self):
         # Identify start time
