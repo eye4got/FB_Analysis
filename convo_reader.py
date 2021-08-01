@@ -42,6 +42,7 @@ class ConvoReader:
             root_path += "/"
 
         # TODO: explicit file path validation vs try/catch blocks in main.py? for main path
+        # TODO: verify user_name matches participants
         # TODO: Implement logging using appropriate packages?
 
         self.file_path = root_path + self.inbox_path

@@ -32,14 +32,15 @@ class Convo:
     def __init__(self, name: str, speakers: Dict[str, Person], is_active: bool, is_group: bool,
                  messages_df: pd.DataFrame):
         self.convo_name = name
-        self.speakers = speakers
+        self.speakers = speakers  # FIXME: decoding issue for speakers keys?
         self.start_time = messages_df.index[0]
         self.is_active = is_active
         self.is_group = is_group
         self.msg_count = messages_df.shape[0]
         self.msgs_df = messages_df
-        self.top_speakers = None
+        self.top_speakers = None  # Includes user as it is only for statistical summary purposes
 
+        # TODO implement proper management of groupchats vs individual chats etc
         # For group chats with >X speakers, identify the X highest contributors for high-level visualisations
         # TODO: re-evaluate whether the number should be so hardcoded?
         if len(speakers) > 5:
@@ -154,7 +155,7 @@ class User:
         self.convos: Dict[str, Convo] = dict()
         self.persons: Dict[str, Person] = dict()
 
-    def get_ranked_convo_by_msg_count(self, n: int = 100, no_groupchats: bool = False):
+    def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False):
         # n is the number of convos returned, for n < 1, all results will be returned
 
         if no_groupchats:
@@ -169,6 +170,32 @@ class User:
 
         return counts
 
+    def get_convos_ranked_by_char_ratio(self, desc: bool, n: int = 100, no_groupchats: bool = True,
+                                        min_msgs: int = 200):
+
+        ratios_list: List[Tuple[int, str]] = []
+        filtered_convos = [x for x in self.convos.values() if self.name in x.speakers]
+
+        if no_groupchats:
+            filtered_convos = [x for x in filtered_convos if len(x.speakers.keys()) == 2]
+
+        for convo in self.convos.values():
+            others_speaker_count = len(convo.speakers.keys()) - 1
+
+            if self.name in convo.speakers and convo.msg_count > (min_msgs * others_speaker_count):
+                user_chars = convo.msgs_df[convo.msgs_df['sender_name'] == self.name].sum('text_len')
+                others_char_count = convo.msgs_df.sum('text_len') - user_chars
+
+                ratio = others_char_count / (user_chars * others_speaker_count)
+                ratios_list.append((ratio, convo.convo_name))
+
+        ratios_list = sorted(ratios_list, key=lambda x: x[0], reverse=desc)
+
+        if n > 1:
+            ratios_list = ratios_list[:n]
+
+        return ratios_list
+
     def create_top_user_timeline(self):
         # Identify start time
         start_time = min(x.start_time for x in self.convos.values())
@@ -176,7 +203,6 @@ class User:
 
     def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
 
-        # FIXME: Remove user from speakers?
         selected_persons = dict()
 
         for person in name_list:
