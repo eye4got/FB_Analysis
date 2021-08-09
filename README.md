@@ -18,3 +18,9 @@ an executable with a GUI, to enable a user to drill down into their data.
   <br><br>
 * **test_convo.py:** this is the test harness, using the unittest package, to test the **convo.py** file. It is
   currently out of date.
+
+### Perequisites
+
+* **Python** version 3.9.2
+
+* **Facebook data file** in **JSON* format. For instructions on how to do this refer to the [How do I download a copy of my information on Facebook?](https://www.facebook.com/help/212802592074644?rdrhc) page.
