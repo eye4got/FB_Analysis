@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# 
+fb-veny/
+
 # C extensions
 *.so
 
