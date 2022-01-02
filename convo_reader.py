@@ -2,10 +2,14 @@ import json
 import os
 import pathlib
 import re
+from datetime import *
+from typing import *
 
+import pandas as pd
 from django.utils.text import slugify
 
-from convo import *
+from convo import Convo, Person
+from user import User
 
 
 class ConvoReader:
@@ -15,8 +19,6 @@ class ConvoReader:
     text_msg_type = "Generic"
 
     # Uses result of json normalisation, which combines names where nested
-    # TODO: do the same thing for fields outside of messages list in json?
-    # TODO: identify dictionaries in fields below and flatten where relevant
     facebook_field_names = {
         "sender_name": "sender_name",
         "timestamp_ms": "timestamp",
@@ -41,12 +43,8 @@ class ConvoReader:
         if root_path[-1] != "/":
             root_path += "/"
 
-        # TODO: explicit file path validation vs try/catch blocks in main.py? for main path
-        # TODO: verify user_name matches participants
-        # TODO: Implement logging using appropriate packages?
-
         self.file_path = root_path + self.inbox_path
-        self.convos: Dict[str, Convo] = dict()
+        self.convos: dict[str, Convo] = dict()
         self.persons: Dict[str, Person] = dict()
         self.user = User(user_name, root_path)
 
@@ -56,6 +54,14 @@ class ConvoReader:
 
     def read_convos(self, output_path: str, individual_convo: str = None, create_files: bool = False):
 
+        """
+        :param output_path:         Where object cache and optional graphic output files will be created
+        :param individual_convo:    Optional argument to specify a specific peron or groupchat's name
+        :param create_files:        Optionally create graphic output files
+
+        Reads all conversations located in the object's filepath and outputs a cache of the object to the output_path.
+        """
+
         # Identify all conversations in directory (needed even for individual convo, to search for FB file names)
         convo_list = os.listdir(self.file_path)
 
@@ -63,8 +69,12 @@ class ConvoReader:
             convo_list = [self.find_individual_convo_path(individual_convo, convo_list)]
 
         # Extract each conversation
-        for convo_path in convo_list:
-            print(f"{convo_path}: ", end='')
+        for ii, convo_path in enumerate(convo_list):
+
+            # Print out progress every 50 conversations FIXME: logging needs to replace this
+            if ii % 50 == 0:
+                print(ii, "/", len(convo_list))
+
             curr_convo = self.extract_single_convo(self.file_path + convo_path)
 
             if curr_convo is not None:
@@ -74,11 +84,6 @@ class ConvoReader:
                     # Temporary solution to allow testing. GUI/output will be their own module(s)
                     self.output_files(curr_convo, output_path)
 
-                print("Complete")
-
-            else:
-                print("Failed")
-
         # Output is temporary, counters will need to be provided to output/UI though
         if self.open_file_fail_count > 0:
             print(f"\n{self.open_file_fail_count} file(s) could not be opened")
@@ -87,7 +92,6 @@ class ConvoReader:
             print(f"\n{self.output_file_fail_count} file(s) could not be written to")
 
         if self.empty_convo_count > 0:
-            # TODO: opportunity for statistic around number of FB friends actually spoken to
             print(f"\n{self.empty_convo_count} conversations were empty")
 
     def extract_single_convo(self, file_path) -> Union[Convo, None]:
@@ -134,7 +138,6 @@ class ConvoReader:
 
         return Convo(title, curr_speakers, is_active, is_group, msgs_df)
 
-    # TODO: Consider stripping out (static) cleaning methods into separate module/class?
     @staticmethod
     def restructure_reactions(reactions_list):
         # Converts FB's reaction dictionary from a list with multiple entries into one dictionary linking people and
@@ -163,6 +166,7 @@ class ConvoReader:
         # Sort out reaction encoding and split out into a column for each speaker's reaction
         msgs_df["reactions_dict"] = msgs_df["reactions_dict"].apply(lambda x: self.restructure_reactions(x))
         msgs_df = pd.concat([msgs_df, msgs_df["reactions_dict"].apply(pd.Series)], axis=1)
+        msgs_df.drop("reactions_dict", axis='columns', inplace=True)
 
         # Extract video and photo counts (don't need nested uris)
         media_cols = ["photos", "videos", "audio_files", "files"]
@@ -204,6 +208,3 @@ class ConvoReader:
             self.output_file_fail_count += 1
             print(f"Could not output to: {curr_output}")
             print(err)
-
-        curr_convo.create_timeline_hist().savefig(curr_output + "/Timeline_Hist.jpeg")
-        curr_convo.create_msg_time_hist().savefig(curr_output + "/Time_Freq_Hist.jpeg")
