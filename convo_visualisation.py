@@ -1,9 +1,19 @@
+import datetime
+from typing import *
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 
 def create_msg_time_hist(hours_series: pd.DataFrame, convo_name: str) -> plt.Figure:
+    """
+    Creates a plot which shows the frequency of msgs for each hour of the day and speaker.
+    :param hours_series: a dataframe with each row as hours of the day, and each column a new speaker
+    :param convo_name: a string, containing the name of the conversation
+    :return:
+    """
+
     if len(hours_series.shape) != 2 or hours_series.shape[0] != 24 or hours_series.shape[1] < 1:
         raise ValueError("hours series must have shape (x, 24), and x > 0")
 
@@ -15,33 +25,34 @@ def create_msg_time_hist(hours_series: pd.DataFrame, convo_name: str) -> plt.Fig
     plt.hist(hist_hours, bins=np.arange(25) - 0.5, weights=hours_series)
     plt.legend([x for x in hours_series.columns], loc="upper left")
 
-    plt.title("Histogram of Characters Sent by Hour of the Day and Sender for " + convo_name)
+    plt.title(f"Histogram of Characters Sent by Hour of the Day and Sender for {convo_name}")
     plt.close()
 
     return histogram
 
 
-def create_timeline_hist(self) -> plt.Figure:
-    if self.top_speakers is None:
-        speaker_subset = self.speakers
-        subset_msgs_df = self.msgs_df
-    else:
-        speaker_subset = self.top_speakers
-        subset_msgs_df = self.msgs_df[self.msgs_df["sender_name"].isin(speaker_subset.keys())]
+def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[str]) -> plt.Figure:
+    """
+
+    :param convo_name:
+    :param msgs_df:
+    :param speakers:
+    :return:
+    """
 
     # Calculate sums of message character counts for each week for each sender
-    weekly_counts = subset_msgs_df.groupby("sender_name").resample("W")["text_len"].sum()
+    weekly_counts = msgs_df.groupby("sender_name").resample("W")["text_len"].sum()
 
-    fig, axs = plt.subplots(len(speaker_subset.keys()), 1, figsize=(16, 8))
-    fig.suptitle("Weekly Histogram of Character Counts for " + self.convo_name)
+    fig, axs = plt.subplots(len(speakers), 1, figsize=(16, 8))
+    fig.suptitle("Weekly Histogram of Character Counts for " + convo_name)
 
-    for ii, speaker in enumerate(speaker_subset.keys()):
-        bins = weekly_counts[speaker].index - timedelta(3)
+    for ii, speaker in enumerate(speakers):
+        bins = weekly_counts[speaker].index - datetime.timedelta(3)
         axs[ii].hist(weekly_counts[speaker].index, bins=bins, weights=weekly_counts[speaker].values, alpha=0.8)
         axs[ii].set_xlabel(speaker)
         axs[ii].grid(True)
 
-    axs[len(speaker_subset.keys()) - 1].set_title("Time")
+    axs[len(speakers) - 1].set_title("Time")
     fig.tight_layout()
     plt.close()
 

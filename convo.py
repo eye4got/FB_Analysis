@@ -1,6 +1,7 @@
 from typing import *
 
 import pandas as pd
+from django.utils.text import slugify
 from tabulate import tabulate
 
 
@@ -24,11 +25,10 @@ class Convo:
         "audio_files": "Voice Memos"
     }
 
-    speaker_cap = 4
-
     def __init__(self, name: str, speakers: Dict[str, Person], is_active: bool, is_group: bool,
                  messages_df: pd.DataFrame):
         self.convo_name = name
+        self.cleaned_name = slugify(name)  # For file paths and similar restricted character sets
         self.speakers = speakers
         self.start_time = messages_df.index[0]
         self.is_active = is_active
@@ -43,8 +43,8 @@ class Convo:
         self.msgs_df["text_len"] = self.msgs_df["text"].apply(lambda x: len(x) if type(x) == str else 0)
 
     def __str__(self) -> str:
-        output = "Conversation Name: " + self.convo_name + "\n"
-        output += "Participants: " + ", ".join(self.speakers.keys()) + "\n\n"
+        output = f"""Conversation Name: {self.convo_name}\n
+                     Participants: {", ".join(self.speakers.keys())}\n\n"""
 
         subset_cols = ["sender_name", "text_len", "photos", "share_link", "sticker_path", "call_duration", "videos",
                        "files", "audio_files", "missed_call", "gifs"]
@@ -73,3 +73,11 @@ class Convo:
 
         return output
 
+    def get_char_counts_by_hour(self) -> pd.DataFrame:
+        # Find the msg counts for each sender, for each hour. Rename columns and fill in the blanks
+        hours_series = self.msgs_df.groupby(["sender_name", "hour_of_day"]).size().unstack(fill_value=0)
+        hours_series.columns = [str(x) + ":00" for x in hours_series.columns]
+        hours_series = hours_series.reindex([str(x) + ":00" for x in range(24)], axis=1, fill_value=0)
+        hours_series.sort_index()
+
+        return hours_series.T

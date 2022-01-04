@@ -9,6 +9,7 @@ __pycache__/
 # Personal Data and output
 raw_data/*
 output/*
+cache/*
 
 # Distribution / packaging
 .Python
@@ -134,3 +135,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Pickled Files
+*.p
+/cache/
