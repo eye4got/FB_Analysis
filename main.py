@@ -3,8 +3,8 @@ import pathlib
 import pickle
 import shutil
 
-import convo_visualisation
-from convo_reader import ConvoReader
+from convo import convo_visualisation
+from convo.convo_reader import ConvoReader
 
 # Custom Inputs, Replace with questions
 root_path = os.path.join("raw_data", "facebook-2022-01-02")

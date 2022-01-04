@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-# Personal Data and output
+# Personal Data and Output
 raw_data/*
 output/*
 cache/*

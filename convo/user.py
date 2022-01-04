@@ -1,6 +1,6 @@
 from typing import *
 
-from convo import Convo, Person
+from convo.convo import Convo, Person
 
 
 class User:
