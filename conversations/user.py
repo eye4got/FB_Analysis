@@ -1,6 +1,6 @@
 from typing import *
 
-from convo.convo import Convo, Person
+from conversations.convo import Convo, Person
 
 
 class User:
@@ -12,13 +12,14 @@ class User:
         self.persons: Dict[str, Person] = dict()
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
+
         """
         Counts the number of messages in conversations (excludes groupchats by default), sorts by highest counts and
         can return the top 'n'
 
-        :param n:  Number of convo msg counts to return. For n < 1, all results will be returned
+        :param n:  Number of conversations msg counts to return. For n < 1, all results will be returned
         :param no_groupchats: Optional bool, determining whether to include groupchats
-        :return:
+        :return: A list of tuples, structured: ('Name', Msg_Count)
         """
 
         if no_groupchats:
@@ -35,6 +36,7 @@ class User:
 
     def get_convos_ranked_by_char_ratio(self, desc: bool, n: int = 100, no_groupchats: bool = True,
                                         min_msgs: int = 200) -> List[Tuple[str, int]]:
+
         """
         Calculates the character ratio: [Others Char Count] / ([Your Char Count] * [Others Speaker Count]),
         scaling your character count based on the number of people in the conversation. It sorts by either the highest,
@@ -45,10 +47,10 @@ class User:
             Low Char Ratio -> You dominate the conversation
 
         :param desc: A boolean, determining whether the results should be sorted in a descending manner
-        :param n: The number of convo char ratios to return. Can be used in conjunction with desc to return the head or tail
+        :param n: The number of conversations char ratios to return. Can be used in conjunction with desc to return the head or tail
         :param no_groupchats: Optional bool, determining whether to include groupchats
         :param min_msgs: The minimum number of messages per speaker, for the character ratio to be evaluated
-        :return:
+        :return: A list of tuples, structured: ('Name', Char Ratio)
         """
 
         ratios_list: List[Tuple[str, int]] = []
@@ -75,6 +77,13 @@ class User:
         return ratios_list
 
     def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
+
+        """
+        Retrieve the persons whose names are listed and create any that are missing. This ensures references are pointers
+        to a single Person object rather than duplication between conversations
+        :param name_list: A list of participants names as strings
+        :return: A dictionary of the Persons, with their names as keys
+        """
 
         selected_persons = dict()
 
