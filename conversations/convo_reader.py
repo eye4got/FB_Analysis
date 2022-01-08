@@ -5,8 +5,8 @@ from typing import *
 
 import pandas as pd
 
-from convo import Convo
-from user import User
+from conversations.convo import Convo
+from conversations.user import User
 
 
 class ConvoReader:
@@ -42,6 +42,7 @@ class ConvoReader:
         :param user_name:   Name of person who's data is being analysed
         :param root_path:   Path to data to be read
         :param individual_convo:    Optional argument to specify a specific peron or groupchat's name
+        :return: a User object, containing all the conversations
 
         Reads all conversations located in the object's filepath
         """
@@ -50,7 +51,7 @@ class ConvoReader:
         file_path = os.path.join(root_path, ConvoReader.inbox_path)
         empty_convo_count = 0
 
-        # Identify all conversations in directory (needed even for individual convo, to search for FB file names)
+        # Identify all conversations in directory (needed even for individual conversations, to search for FB file names)
         convo_list = os.listdir(file_path)
 
         if individual_convo is not None:
@@ -78,6 +79,13 @@ class ConvoReader:
 
     @staticmethod
     def extract_single_convo(curr_user, file_path) -> Union[Convo, None]:
+
+        """
+        Identifies all JSON files associated with a single conversation and initialises a Convo object
+        :param curr_user: the current User object instance, which is being added to
+        :param file_path: the path to the conversation within the Raw Data extract
+        :return: a "nullable-like" Convo, in case the Convo cannot be initialised properly
+        """
 
         # Identify all json files corresponding to conversation
         json_list = os.listdir(file_path)
@@ -122,8 +130,13 @@ class ConvoReader:
 
     @staticmethod
     def restructure_reactions(reactions_list):
-        # Converts FB's reaction dictionary from a list with multiple entries into one dictionary linking people and
-        # their reaction. Enables splitting into cols to make counting etc easier for group chats
+
+        """
+        Converts FB's reaction dictionary for each message from a list with multiple entries into one dictionary linking
+        people and their reaction. Enables splitting into cols to make counting etc easier for group chats
+        :param reactions_list: list of sets containing any users that reacted and their reaction
+        :return: Dictionary of users and their corresponding reaction
+        """
 
         # Empty values are read as floats, return an empty dictionary so that the apply(series) handles appropriately
         if type(reactions_list) != list: return {}
@@ -139,6 +152,12 @@ class ConvoReader:
 
     @staticmethod
     def clean_msg_data(msgs_df: pd.DataFrame) -> pd.DataFrame:
+
+        """
+        Renames columns to standardised names, converts types, sorts data, flattens and extracts highly nested columns.
+        :param msgs_df: A dataframe of all the messages in a conversation
+        :return: A dataframe of accessible and flattened messages in a conversation
+        """
 
         msgs_df.rename(columns=ConvoReader.facebook_field_names, inplace=True)
 
@@ -166,8 +185,13 @@ class ConvoReader:
 
     @staticmethod
     def find_individual_convo_path(individual_name: str, convo_list: List[str]) -> str:
-        # Finds filepath associated with conversation as Facebook adds alphanumeric junk at the end of the folder name
-        # Prioritises 1-1 conversations over group-chats where unclear
+        """
+        Finds filepath associated with conversation as Facebook adds alphanumeric junk at the end of the folder name.
+        Prioritises 1-1 conversations over group-chats where unclear
+        :param individual_name: Name of Conversation (person or groupchat), only including alphanumeric characters and dashes
+        :param convo_list: List of conversations identified in raw data to search through
+        :return: returns the location of the single conversation to be read in
+        """
 
         cleaned_convo_input = individual_name.lower().replace(" ", "")
 
@@ -179,7 +203,7 @@ class ConvoReader:
         if len(matches) == 0:
             raise FileNotFoundError(f"Specified conversation: {individual_name} does not exist")
         else:
-            ## Find shortest folder name (to find convo with just them)
+            ## Find shortest folder name (to find conversations with just them)
             fb_convo_str = min(matches, key=len)
 
         return fb_convo_str

@@ -74,6 +74,10 @@ class Convo:
         return output
 
     def get_char_counts_by_hour(self) -> pd.DataFrame:
+        """
+        :return: A data frame containing the msg counts for each speaker (columns) for each hour of the day (rows)
+        """
+
         # Find the msg counts for each sender, for each hour. Rename columns and fill in the blanks
         hours_series = self.msgs_df.groupby(["sender_name", "hour_of_day"]).size().unstack(fill_value=0)
         hours_series.columns = [str(x) + ":00" for x in hours_series.columns]

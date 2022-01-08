@@ -6,12 +6,14 @@ import numpy as np
 import pandas as pd
 
 
+# -*- coding: utf-8 -*-
+
 def create_msg_time_hist(hours_series: pd.DataFrame, convo_name: str) -> plt.Figure:
     """
     Creates a plot which shows the frequency of msgs for each hour of the day and speaker.
-    :param hours_series: a dataframe with each row as hours of the day, and each column a new speaker
-    :param convo_name: a string, containing the name of the conversation
-    :return:
+    :param hours_series: A dataframe with each row as hours of the day, and each column a new speaker
+    :param convo_name: A string, containing the name of the conversation
+    :return: A Matplotlib figure of time of the day message frequency
     """
 
     if len(hours_series.shape) != 2 or hours_series.shape[0] != 24 or hours_series.shape[1] < 1:
@@ -33,10 +35,10 @@ def create_msg_time_hist(hours_series: pd.DataFrame, convo_name: str) -> plt.Fig
 
 def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[str]) -> plt.Figure:
     """
-
-    :param convo_name:
-    :param msgs_df:
-    :param speakers:
+    Creates a histogram of character counts sent by each user every 3 days for the entire history of the conversation
+    :param convo_name: Name of conversation. To be included in the title
+    :param msgs_df: A dataframe containing all the messages of the conversation
+    :param speakers: A list of the speakers names to include in the legend
     :return:
     """
 
