@@ -1,6 +1,10 @@
 import json
+import logging
 import os
+import pathlib
+import pickle
 import re
+import shutil
 from typing import *
 
 import pandas as pd
@@ -10,7 +14,7 @@ from conversations.user import User
 
 
 class ConvoReader:
-    inbox_path = "messages/inbox/"
+    inbox_path = os.path.join("messages", "inbox")
     file_name_pattern = r"(message_\d{1}.json)"
     group_thread_type = "RegularGroup"
     text_msg_type = "Generic"
@@ -36,12 +40,29 @@ class ConvoReader:
     }
 
     @staticmethod
+    def unzip_and_merge_files(file_path):
+        """
+        Currently checks if an unzipped folder with same name as a zipped object exists and assumes that is its counterpart
+        FaceBook has currently split the download into multiple similarly structures files. However, as far as I can tell
+        only one actually contains messages sent and received. We are merging all these files into one regardless
+
+        :param file_path: str which indicates where the downloaded files (and no other files) are stored
+        """
+
+        all_files = os.listdir(file_path)
+        zipped_files_wo_unzip = [x for x in all_files if
+                                 os.path.splitext(x)[-1] == '.zip' and os.path.splitext(x)[0] not in all_files]
+
+        for zipped_file in zipped_files_wo_unzip:
+            shutil.unpack_archive(os.path.join(file_path, zipped_file))
+
+    @staticmethod
     def read_convos(user_name: str, root_path: str, individual_convo: str = None) -> User:
 
         """
-        :param user_name:   Name of person who's data is being analysed
-        :param root_path:   Path to data to be read
-        :param individual_convo:    Optional argument to specify a specific peron or groupchat's name
+        :param user_name:   Name of person whose data is being analysed
+        :param root_path:   Path to folder of zipped or unzipped folders FB has provided (assumes unzipped have same name their zipped counterpart)
+        :param individual_convo:    Optional argument to specify a specific person or groupchat's name
         :return: a User object, containing all the conversations
 
         Reads all conversations located in the object's filepath
@@ -49,6 +70,7 @@ class ConvoReader:
 
         curr_user = User(user_name, root_path)
         file_path = os.path.join(root_path, ConvoReader.inbox_path)
+        ConvoReader.unzip_and_merge_files(file_path)
         empty_convo_count = 0
 
         # Identify all conversations in directory (needed even for individual conversations, to search for FB file names)
@@ -60,9 +82,9 @@ class ConvoReader:
         # Extract each conversation
         for ii, convo_path in enumerate(convo_list):
 
-            # Print out progress every 50 conversations FIXME: logging needs to replace this
+            # Print out progress every 50 conversations
             if ii % 50 == 0:
-                print(f"\t\t{ii} / {len(convo_list)}")
+                logging.info(f"\t\t{ii} / {len(convo_list)}")
 
             curr_convo = ConvoReader.extract_single_convo(curr_user, os.path.join(file_path, convo_path))
 
@@ -73,7 +95,9 @@ class ConvoReader:
                 empty_convo_count += 1
 
         if empty_convo_count > 0:
-            print(f"\n{empty_convo_count} conversations were empty")
+            logging.info(f"\n{empty_convo_count} conversations were empty")
+
+        curr_user.build_sma_df()
 
         return curr_user
 
@@ -88,16 +112,15 @@ class ConvoReader:
         """
 
         # Identify all json files corresponding to conversation
-        json_list = os.listdir(file_path)
-        json_list = [x for x in json_list if re.match(ConvoReader.file_name_pattern, x)]
+        json_list = [x for x in os.listdir(file_path) if re.match(ConvoReader.file_name_pattern, x)]
 
         # Add file path
-        json_list = [os.path.join(file_path, x) for x in json_list]
+        full_path_json_list = [os.path.join(file_path, x) for x in json_list]
 
-        # Setup conversation Dataframe, loop through each JSON file and append new rows
-        raw_msgs_df = pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())
+        # Setup conversation Dataframe (to guarantee all cols exist, loop through each JSON file and append new rows
+        raw_msgs_df_list = [pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())]
 
-        for path in json_list:
+        for path in full_path_json_list:
             # Load json as string as its nesting doesn't allow direct normalisation
             try:
                 with open(path) as file_obj:
@@ -109,9 +132,10 @@ class ConvoReader:
                 print(err)
                 return None
 
-            input_df = pd.json_normalize(raw_json["messages"])
-            raw_msgs_df = raw_msgs_df.append(input_df)
+            # Add json normalised data to list, for performant appending once all have been collected
+            raw_msgs_df_list.append(pd.json_normalize(raw_json["messages"]))
 
+        raw_msgs_df = pd.concat(raw_msgs_df_list)
         msgs_df = ConvoReader.clean_msg_data(raw_msgs_df)
         convo_persons = list(msgs_df["sender_name"].unique())
 
@@ -203,7 +227,32 @@ class ConvoReader:
         if len(matches) == 0:
             raise FileNotFoundError(f"Specified conversation: {individual_name} does not exist")
         else:
-            ## Find shortest folder name (to find conversations with just them)
+            ## Find the shortest folder name (to find conversations with just them)
             fb_convo_str = min(matches, key=len)
 
         return fb_convo_str
+
+    @staticmethod
+    def build_cache(root_path, cache_root, full_cache_path, user_name):
+        cached_data = None
+
+        print("Building Cache:")
+
+        try:
+            # Import Convos
+            cached_data = ConvoReader.read_convos(user_name, root_path)
+
+            # Check if cache directory exists, if not create it
+            pathlib.Path(cache_root).mkdir(parents=True, exist_ok=True)
+
+            # Cache user object
+            with open(full_cache_path, "wb") as file_obj:
+                pickle.dump(cached_data, file_obj)
+
+        except IOError:
+            print("Cache Build Failed")
+
+        else:
+            print("Cache: Built")
+
+        return cached_data

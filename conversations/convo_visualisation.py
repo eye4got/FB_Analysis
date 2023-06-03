@@ -1,6 +1,10 @@
 import datetime
+import logging
+import os
+import warnings
 from typing import *
 
+import bar_chart_race as bcr
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -59,3 +63,42 @@ def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[
     plt.close()
 
     return fig
+
+
+def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, output_path: str, format_desc: str):
+    logging.info("Starting Racing Bar Chart Rendering")
+
+    # FIXME: Gross warnings filter to suppress UserWarnings for Missing Glyphs in font
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        bcr.bar_chart_race(
+            df=agg_msg_count_df,
+            filename=os.path.join(output_path, 'fb_top_messages_history.mp4'),
+            orientation='h',
+            sort='desc',
+            n_bars=top_n,
+            fixed_order=False,
+            fixed_max=True,
+            interpolate_period=False,
+            label_bars=True,
+            bar_size=.95,
+            period_label={'x': .99, 'y': .25, 'ha': 'right', 'va': 'center'},
+            period_fmt='%B %d, %Y',
+            period_summary_func=lambda v, r: {'x': .99, 'y': .18,
+                                              's': f'Total char in period: {v.nlargest(top_n).sum():,.0f} \n'
+                                                   f'Concentration of char in top 10: {v.nlargest(top_n).sum() / v.sum():.1%}',
+                                              'ha': 'right', 'size': 8, 'family': 'Courier New'},
+            perpendicular_bar_func='median',
+            figsize=(7, 4),
+            dpi=144,
+            cmap='dark12',
+            title=f'Average Characters Sent/Received on FB Messenger {format_desc}',
+            title_size='',
+            bar_label_size=7,
+            tick_label_size=7,
+            scale='linear',
+            fig=None,
+            bar_kwargs={'alpha': .7},
+            filter_column_colors=False
+        )
+    logging.debug("Finished Rendering")

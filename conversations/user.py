@@ -1,4 +1,7 @@
+import datetime as dt
 from typing import *
+
+import pandas as pd
 
 from conversations.convo import Convo, Person
 
@@ -10,6 +13,8 @@ class User:
         self.root_path = root_path
         self.convos: Dict[str, Convo] = dict()
         self.persons: Dict[str, Person] = dict()
+
+        self.joined_sma_df: pd.DataFrame
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
 
@@ -94,3 +99,36 @@ class User:
             selected_persons[person] = self.persons[person]
 
         return selected_persons
+
+    def build_sma_df(self, sample_period='2W', rolling_window=6, start_date: Union[dt.datetime, None] = None):
+
+        # Find earliest conversation start date, unless start_date is specified
+        min_date = min([convo.msgs_df.index.min() for _, convo in self.convos.items()])
+
+        cols_to_combine = []
+        filter_dt = pd.to_datetime(start_date - dt.timedelta(days=360)) if start_date else min_date
+        for c_name, convo in self.convos.items():
+
+            if c_name != "BIG BEANS BANTER CLUB" and c_name != "Emily Leverington":
+                continue
+
+            df = convo.msgs_df
+            df['timestamp'] = df.index
+
+            # Hacky time saving manoeuvre
+            if df[df.index >= filter_dt].shape[0] < 100: continue
+
+            # Aggregate text counts into periods and then apply a simple moving average
+            sma_df = pd.DataFrame()
+            sma_df[c_name] = df.resample(sample_period, on='timestamp', label='right',
+                                         origin=filter_dt).text_len.sum()  # ,
+            if rolling_window > 1:
+                sma_df[c_name] = sma_df[c_name].rolling(window=rolling_window).mean()
+
+            if sma_df.shape[0] > 0:
+                if start_date:
+                    sma_df = sma_df[sma_df.index >= start_date]
+                cols_to_combine.append(sma_df)
+
+        # Concatenate and fill missing values with zeroes
+        return pd.concat(cols_to_combine, axis=1).fillna(0)  # .drop_duplicates()

@@ -1,16 +1,22 @@
+import datetime
+import logging
 import os
 import pathlib
 import pickle
+import re
 import shutil
 import sys
 
 from conversations import convo_visualisation
 from conversations.convo_reader import ConvoReader
 
+# logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(asctime)s - %(message)s')
+
 sys.path.append("conversations")
 
 # Custom Inputs, Replace with questions
-root_path = os.path.join("raw_data", "facebook-2022-01-02")
+root_path = os.path.join("raw_data", "facebook-2023-01-14")
 output_root = "output"
 cache_root = "cache"
 user_name = "Raine Bianchini"
@@ -75,10 +81,9 @@ while choice_main[0] != "0":
     print("\nFacebook Analysis Main Menu:")
     print("==============================")
     print("(1)\tList Top Conversations")
-    print("(2)\tGenerate Msg Time of Day Histograms")
-    print("(3)\tGenerate Conversation Timeline")
-    print("(4)\tSearch Specific Conversation")
-    print("(5)\tRebuild Cache")
+    print("(2)\tGenerate Graphs")
+    print("(3)\tSearch Specific Conversation")
+    print("(4)\tRebuild Cache")
     print("(0)\tQuit\n")
     choice_main = input("")
 
@@ -125,48 +130,118 @@ while choice_main[0] != "0":
                 print("Incorrect command, please try again")
 
 
-    # GENERATE TIME OF DAY HISTOGRAMS
+    # GENERATE GRAPHS
     elif choice_main[0] == "2":
+        choice_graph_list = " "
 
-        print("\nGenerating Time of Day Histograms")
-        pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+        while choice_graph_list[0] != "0":
+            print("\nGraph List Menu:")
+            print("(1)\tTime of Day Histograms")
+            print("(2)\tConversation Timelines")
+            print("(3)\tRacing Bar Chart Animation")
+            print("(0)\tEscape to Top Menu\n")
+            choice_graph_list = input("")
 
-        for ii, convo in enumerate(cached_data.convos.values()):
+            # TIME OF DAY HISTOGRAMS
+            if choice_graph_list[0] == "1":
 
-            # Print out progress every 50 conversations FIXME: logging needs to replace this
-            if ii % 50 == 0:
-                print(f"\t\t{ii} / {len(cached_data.convos)}")
+                print("\nGenerating Time of Day Histograms")
+                pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
 
-            hist_dataset = convo.get_char_counts_by_hour()
-            hist_obj = convo_visualisation.create_msg_time_hist(hist_dataset, convo.convo_name)
+                for ii, convo in enumerate(cached_data.convos.values()):
 
-            output_dir = os.path.join(output_root, convo.cleaned_name)
-            pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-            hist_obj.savefig(os.path.join(output_dir, "Time of Day Histogram.jpeg"))
+                    # Print out progress every 50 conversations FIXME: logging (to both console + file)
+                    if ii % 50 == 0:
+                        print(f"\t\t{ii} / {len(cached_data.convos)}")
+
+                    hist_dataset = convo.get_char_counts_by_hour()
+                    hist_obj = convo_visualisation.create_msg_time_hist(hist_dataset, convo.convo_name)
+
+                    output_dir = os.path.join(output_root, convo.cleaned_name)
+                    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+                    hist_obj.savefig(os.path.join(output_dir, "Time of Day Histogram.jpeg"))
 
 
-    # GENERATE CONVERSATION MSG COUNT TIMELINE
-    elif choice_main[0] == "3":
+            # GENERATE CONVERSATION MSG COUNT TIMELINE
+            elif choice_graph_list[0] == "2":
 
-        print("\nGenerating Conversation Timeline Graphs")
-        pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+                print("\nGenerating Conversation Timeline Graphs")
+                pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
 
-        for ii, convo in enumerate(cached_data.convos.values()):
+                for ii, convo in enumerate(cached_data.convos.values()):
 
-            # Print out progress every 50 conversations FIXME: logging needs to replace this
-            if ii % 50 == 0:
-                print(f"\t\t{ii} / {len(cached_data.convos)}")
+                    # Print out progress every 50 conversations FIXME: logging needs to replace this
+                    if ii % 50 == 0:
+                        print(f"\t\t{ii} / {len(cached_data.convos)}")
 
-            speakers = list(convo.speakers.keys())
-            hist_obj = convo_visualisation.create_timeline_hist(convo.convo_name, convo.msgs_df, speakers)
+                    speakers = list(convo.speakers.keys())
+                    hist_obj = convo_visualisation.create_timeline_hist(convo.convo_name, convo.msgs_df, speakers)
 
-            output_dir = os.path.join(output_root, convo.cleaned_name)
-            pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-            hist_obj.savefig(os.path.join(output_dir, "Conversation Timeline.jpeg"))
+                    output_dir = os.path.join(output_root, convo.cleaned_name)
+                    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+                    hist_obj.savefig(os.path.join(output_dir, "Conversation Timeline.jpeg"))
 
+            # GENERATE RACING BAR CHART ANIMATION
+            elif choice_graph_list[0] == "3":
+                config_is_correct = False
+                while not config_is_correct:
+                    print("Config for Racing Bar Chart Animation:")
+                    print("*******************************************************")
+                    print("[Number of bars] [Time Period for each frame] [Smoothing Window] [Start Time]\n")
+
+                    print("Number of bars: the top x number of ranked conversations to include in the chart")
+                    print("\tFormat: 1-99\n")
+                    print("Time Period: How many days, weeks, months etc of data to aggregate for each time period")
+                    print("\tFormat: optional number then capital letter E.g. 3D, 2W, M\n")
+                    print(
+                        "Smoothing Window: How many of the time periods should be smoothed together, to make the chart readable")
+                    print("\tThis parameter is optional, Format: 1-20\n")
+                    print("Start Time: Filter out messages before this time (Optional Param)")
+                    print("\tFormat: YYYY-MM-DD")
+
+                    print("Recommended Config:")
+                    print("10 2W 6")
+                    racing_bar_config = input("Selection: ")
+
+                    config_regex = r'(\d{1,2})\s(\d{1,2}[DWM])\s?(\d{1,2})?\s?(\d{4}-\d{2}-\d{2})?'
+
+                    matched_config = re.match(config_regex, racing_bar_config, re.IGNORECASE)
+                    if matched_config:
+                        try:
+                            top_convo_num = int(matched_config[1])
+                            sample_period = matched_config[2]
+                            rolling_window = int(matched_config[3]) if matched_config[3] else 1
+                            start_date = None
+                            if matched_config[4]:
+                                start_date = datetime.datetime.fromisoformat(matched_config[4])
+                                print(f"\tDate Found: {start_date}")
+                        except Exception as err:
+                            print("\nIncorrect config:")
+                            print(err)
+                        else:
+                            config_is_correct = True
+                            print("\nCleaning data .... \n")
+                            joined_sma_df = cached_data.build_sma_df(sample_period, rolling_window, start_date)
+
+                            title_format_desc = f"{sample_period} period, with a {rolling_window} period rolling window {f', after {start_date}' if start_date else ''}"
+
+                            print("\nGenerating Racing Bar Chart Animation")
+                            pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+                            convo_visualisation.create_bcr_top_convo_animation(joined_sma_df, top_convo_num,
+                                                                               output_root, title_format_desc)
+
+                    elif racing_bar_config.upper().startswith('Q'):
+                        config_is_correct = True
+                        print("Quitting racing bar chart method")
+
+                    else:
+                        print("Config did not match format, please try again!")
+
+            elif choice_graph_list[0] != "0":
+                print("Incorrect command, please try again")
 
     # SEARCH FOR SPECIFIC CONVERSATION
-    elif choice_main[0] == "4":
+    elif choice_main[0] == "3":
 
         user_found = False
         choice_ind_convo = ""
@@ -185,7 +260,7 @@ while choice_main[0] != "0":
 
 
     # REBUILD CACHE
-    elif choice_main[0] == "5":
+    elif choice_main[0] == "4":
 
         shutil.rmtree(cache_root)
         print("\nPrevious Cache Deleted")
