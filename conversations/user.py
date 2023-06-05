@@ -102,26 +102,25 @@ class User:
 
     def build_sma_df(self, sample_period='2W', rolling_window=6, start_date: Union[dt.datetime, None] = None):
 
-        # Find earliest conversation start date, unless start_date is specified
-        min_date = min([convo.msgs_df.index.min() for _, convo in self.convos.items()])
+        offset = dt.timedelta(days=int(sample_period[:-1]))
+        if start_date:
+            chart_start_dt = pd.to_datetime(start_date - (offset * rolling_window) * 2)
 
         cols_to_combine = []
-        filter_dt = pd.to_datetime(start_date - dt.timedelta(days=360)) if start_date else min_date
         for c_name, convo in self.convos.items():
-
-            if c_name != "BIG BEANS BANTER CLUB" and c_name != "Emily Leverington":
-                continue
 
             df = convo.msgs_df
             df['timestamp'] = df.index
+            if start_date:
+                df = df[df.timestamp >= chart_start_dt]
 
             # Hacky time saving manoeuvre
-            if df[df.index >= filter_dt].shape[0] < 100: continue
+            if df.shape[0] < 100:
+                continue
 
             # Aggregate text counts into periods and then apply a simple moving average
             sma_df = pd.DataFrame()
-            sma_df[c_name] = df.resample(sample_period, on='timestamp', label='right',
-                                         origin=filter_dt).text_len.sum()  # ,
+            sma_df[c_name] = df.resample(sample_period, on='timestamp', label='right', origin='epoch').text_len.sum()
             if rolling_window > 1:
                 sma_df[c_name] = sma_df[c_name].rolling(window=rolling_window).mean()
 

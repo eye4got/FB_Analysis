@@ -191,8 +191,8 @@ while choice_main[0] != "0":
 
                     print("Number of bars: the top x number of ranked conversations to include in the chart")
                     print("\tFormat: 1-99\n")
-                    print("Time Period: How many days, weeks, months etc of data to aggregate for each time period")
-                    print("\tFormat: optional number then capital letter E.g. 3D, 2W, M\n")
+                    print("Time Period: How many days of data to aggregate for each time period")
+                    print("\tFormat: optional number then capital letter E.g. 3D, 14D\n")
                     print(
                         "Smoothing Window: How many of the time periods should be smoothed together, to make the chart readable")
                     print("\tThis parameter is optional, Format: 1-20\n")
@@ -200,10 +200,11 @@ while choice_main[0] != "0":
                     print("\tFormat: YYYY-MM-DD")
 
                     print("Recommended Config:")
-                    print("10 2W 6")
+                    print("10 14D 6")
                     racing_bar_config = input("Selection: ")
 
-                    config_regex = r'(\d{1,2})\s(\d{1,2}[DWM])\s?(\d{1,2})?\s?(\d{4}-\d{2}-\d{2})?'
+                    # Only allow days because weeks/months override the origin and offset args in pandas.resample
+                    config_regex = r'(\d{1,2})\s(\d{1,3}D)\s?(\d{1,2})?\s?(\d{4}-\d{2}-\d{2})?'
 
                     matched_config = re.match(config_regex, racing_bar_config, re.IGNORECASE)
                     if matched_config:
