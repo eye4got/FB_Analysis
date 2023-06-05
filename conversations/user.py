@@ -127,6 +127,9 @@ class User:
             if sma_df.shape[0] > 0:
                 if start_date:
                     sma_df = sma_df[sma_df.index >= start_date]
+                else:
+                    sma_df = sma_df[sma_df.index >= sma_df.index.min() + rolling_window * offset]
+
                 cols_to_combine.append(sma_df)
 
         # Concatenate and fill missing values with zeroes

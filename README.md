@@ -10,19 +10,28 @@ an executable with a GUI, to enable a user to drill down into their data.
   string with the name of a specific Facebook friend to only process the conversation between the user and the specified
   friend
   <br><br>
+
 * **convo.py:** defines the Convo (Conversation) class. There is one instance per conversation. There is currently no
   difference between individual conversations and group chats. This is also currently where the output generation
   methods are stored.
   <br><br>
+
 * **convo_reader.py:** the class responsible for extracting data from the FB json extracts and building the Convo class
   <br><br>
+
+* **convo_visualisation.py:** the module which houses all functions responsible for graphing the data. It is intended to
+  be abstracted from the original format of the data and only loosely coupled with the Convo class
+  <br><br>
+
 * **test_convo.py:** this is the test harness, using the unittest package, to test the **convo.py** file. It is
   currently out of date.
 
-### Perequisites
+### Prerequisites
 
 * **Python** version 3.10.6
 
-* **Facebook data file** in **JSON* format. For instructions on how to do this refer to
-  the [How do I download a copy of my information on Facebook?](https://www.facebook.com/help/212802592074644?rdrhc)
-  page.
+* **Facebook data file** in **JSON* format. For instructions on how to download:
+  [How do I download a copy of my information on Facebook?](https://www.facebook.com/help/212802592074644?rdrhc)
+
+* **FFMpeg** Version: 2023-05-15-git-2953ebe7b6-full_build-www.gyan.dev For instructions on how to install:
+  [How to install FFMpeg](https://www.linkedin.com/pulse/step-solve-common-error-racing-bar-chart-ffmpeg-available-yang/)

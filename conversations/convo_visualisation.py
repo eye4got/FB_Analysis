@@ -101,4 +101,4 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
             bar_kwargs={'alpha': .7},
             filter_column_colors=False
         )
-    logging.debug("Finished Rendering")
+    logging.info("Finished Rendering")
