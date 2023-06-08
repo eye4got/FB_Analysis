@@ -1,8 +1,7 @@
-import datetime
+import datetime as dt
 import logging
 import os
 import pathlib
-import pickle
 import re
 import shutil
 import sys
@@ -16,66 +15,24 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(asctime)s - %(
 sys.path.append("conversations")
 
 # Custom Inputs, Replace with questions
-root_path = os.path.join("raw_data", "facebook-2023-01-14")
+root_path = os.path.join("raw_data", "facebook-rainebianchini")
 output_root = "output"
 cache_root = "cache"
 user_name = "Raine Bianchini"
 # TODO: add options for create_files?
 
-# Constants
-cache_file_name = "user_pickle.p"
-
-
-def build_cache(root_path, cache_root, full_cache_path, user_name):
-    cached_data = None
-
-    print("Building Cache:")
-
-    try:
-        # Import Convos
-        cached_data = ConvoReader.read_convos(user_name, root_path)
-
-        # Check if cache directory exists, if not create it
-        pathlib.Path(cache_root).mkdir(parents=True, exist_ok=True)
-
-        # Cache user object
-        with open(full_cache_path, "wb") as file_obj:
-            pickle.dump(cached_data, file_obj)
-
-    except IOError:
-        print("Cache Build Failed")
-
-    else:
-        print("Cache: Built")
-
-    return cached_data
-
-
 # STARTUP
 print("\nAnalysis of FaceBook Data by Raine Bianchini")
 print("Version 0.1")
-full_cache_path = os.path.join(cache_root, cache_file_name)
+cached_data = ConvoReader.load_or_create_cache(root_path, cache_root, user_name)
+
+choice_main = " "
+if not cached_data:
+    print("Aborting as cached data cannot be built")
+    choice_main = "0"
 
 ## TODO: create output file if it doesn't exist?
 
-if os.path.exists(full_cache_path):
-    try:
-        with open(full_cache_path, "rb") as file_obj:
-            cached_data = pickle.load(file_obj)
-
-    except IOError:
-        print("The Cache Output Filepath exists but could not be opened. It will be rebuilt")
-        # Delete the previous filepath, triggering a rebuild of the cache
-        shutil.rmtree(cache_root)
-
-    else:
-        print("Cache: Found")
-        # TODO: Add Cache Integrity Check
-
-if not os.path.exists(full_cache_path):
-    cached_data = build_cache(root_path, cache_root, full_cache_path, user_name)
-
-choice_main = " "
 
 while choice_main[0] != "0":
     print("\nFacebook Analysis Main Menu:")
@@ -187,7 +144,9 @@ while choice_main[0] != "0":
                 while not config_is_correct:
                     print("Config for Racing Bar Chart Animation:")
                     print("*******************************************************")
-                    print("[Number of bars] [Time Period for each frame] [Smoothing Window] [Start Time]\n")
+                    print("If you enter no parameters, a default selection will be chosen for you")
+                    print(
+                        "[Number of bars] [Time Period for each frame] [Smoothing Window] start_dt:[Start Time] end_dt:[End Time]\n")
 
                     print("Number of bars: the top x number of ranked conversations to include in the chart")
                     print("\tFormat: 1-99\n")
@@ -197,14 +156,20 @@ while choice_main[0] != "0":
                         "Smoothing Window: How many of the time periods should be smoothed together, to make the chart readable")
                     print("\tThis parameter is optional, Format: 1-20\n")
                     print("Start Time: Filter out messages before this time (Optional Param)")
-                    print("\tFormat: YYYY-MM-DD")
+                    print("\tFormat: start_dt:YYYY-MM-DD\n")
+
+                    print("End Time: Filter out messages after this time (Optional Param)")
+                    print("\tFormat: end_dt:YYYY-MM-DD")
 
                     print("Recommended Config:")
-                    print("10 14D 6")
+                    recommended_config = f"10 14D 3 end_dt:{dt.date.today() - dt.timedelta(days=90)}"
+                    print(recommended_config)
                     racing_bar_config = input("Selection: ")
 
+                    racing_bar_config = racing_bar_config if racing_bar_config else recommended_config
+
                     # Only allow days because weeks/months override the origin and offset args in pandas.resample
-                    config_regex = r'(\d{1,2})\s(\d{1,3}D)\s?(\d{1,2})?\s?(\d{4}-\d{2}-\d{2})?'
+                    config_regex = r'(\d{1,2})\s(\d{1,3}D)\s?(\d{1,2})?\s?(start_dt:\d{4}-\d{2}-\d{2})?(end_dt:\d{4}-\d{2}-\d{2})?'
 
                     matched_config = re.match(config_regex, racing_bar_config, re.IGNORECASE)
                     if matched_config:
@@ -213,18 +178,25 @@ while choice_main[0] != "0":
                             sample_period = matched_config[2]
                             rolling_window = int(matched_config[3]) if matched_config[3] else 1
                             start_date = None
+                            end_date = None
+
                             if matched_config[4]:
-                                start_date = datetime.datetime.fromisoformat(matched_config[4])
-                                print(f"\tDate Found: {start_date}")
+                                start_date = dt.datetime.fromisoformat(matched_config[4].replace('start_dt:', ''))
+                                print(f"\tStart Date Found: {start_date}")
+
+                            if matched_config[5]:
+                                end_date = dt.datetime.fromisoformat(matched_config[5].replace('end_dt:', ''))
+                                print(f"\tEnd Date Found: {end_date}")
                         except Exception as err:
                             print("\nIncorrect config:")
                             print(err)
                         else:
                             config_is_correct = True
                             print("\nCleaning data .... \n")
-                            joined_sma_df = cached_data.build_sma_df(sample_period, rolling_window, start_date)
+                            joined_sma_df = cached_data.build_sma_df(sample_period, rolling_window, start_date,
+                                                                     end_date)
 
-                            title_format_desc = f"{sample_period} period, with a {rolling_window} period rolling window {f', after {start_date}' if start_date else ''}"
+                            title_format_desc = f"({sample_period}ay periods, {rolling_window} period rolling window)"
 
                             print("\nGenerating Racing Bar Chart Animation")
                             pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
@@ -262,11 +234,9 @@ while choice_main[0] != "0":
 
     # REBUILD CACHE
     elif choice_main[0] == "4":
-
         shutil.rmtree(cache_root)
-        print("\nPrevious Cache Deleted")
-
-        cached_data = build_cache(root_path, cache_root, full_cache_path, user_name)
+        logging.info("Previous Cache Deleted")
+        cached_data = ConvoReader.build_cache(root_path, cache_root, user_name)
 
     elif choice_main[0] != "0":
         print("Incorrect command, please try again")

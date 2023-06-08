@@ -53,7 +53,7 @@ class Convo:
 
         # Media Columns have counts of elements per message, need to sum these instead of counting
         agg_method = {}
-        media_cols = ["photos", "videos", "audio_files", "files", "text_len"]
+        media_cols = ["photos", "videos", "audio_files", "files", "missed_calls", "text_len"]
         for col in subset_cols:
             agg_method[col] = ["count"] if col not in media_cols else ["sum"]
 

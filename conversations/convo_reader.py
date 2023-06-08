@@ -5,8 +5,10 @@ import pathlib
 import pickle
 import re
 import shutil
+import zipfile
 from typing import *
 
+import numpy as np
 import pandas as pd
 
 from conversations.convo import Convo
@@ -14,10 +16,9 @@ from conversations.user import User
 
 
 class ConvoReader:
+    cache_file_name = "user_pickle.p"
     inbox_path = os.path.join("messages", "inbox")
     file_name_pattern = r"(message_\d{1}.json)"
-    group_thread_type = "RegularGroup"
-    text_msg_type = "Generic"
 
     # Uses result of json normalisation, which combines names where nested
     facebook_field_names = {
@@ -34,8 +35,8 @@ class ConvoReader:
         "videos": "videos",
         "share.share_text": "share_text",
         "files": "files",
-        "audio_files": "audio_files",
         "missed": "missed_call",
+        "audio_files": "audio_files",
         "gifs": "gifs"
     }
 
@@ -50,11 +51,28 @@ class ConvoReader:
         """
 
         all_files = os.listdir(file_path)
+
+        # Unzip files
         zipped_files_wo_unzip = [x for x in all_files if
-                                 os.path.splitext(x)[-1] == '.zip' and os.path.splitext(x)[0] not in all_files]
+                                 zipfile.is_zipfile(os.path.join(file_path, x)) and os.path.splitext(x)[
+                                     0] not in all_files]
+
+        logging.info(f'Found {len(zipped_files_wo_unzip)} files to unzip')
 
         for zipped_file in zipped_files_wo_unzip:
-            shutil.unpack_archive(os.path.join(file_path, zipped_file))
+            logging.info(f'\t unzipping {zipped_file}')
+            new_dir_location = os.path.join(file_path, os.path.splitext(zipped_file)[0])
+            os.mkdir(new_dir_location)
+
+            try:
+                with zipfile.ZipFile(os.path.join(file_path, zipped_file), mode="r") as archive:
+                    archive.extractall(new_dir_location)
+            except zipfile.BadZipfile as err:
+                logging.info(f'Failed to extract {zipped_file}')
+                logging.info(err)
+
+        # TODO: Merge directories (currently only one actually has messages in it, however, rest contain files)
+        os.listdir(file_path)
 
     @staticmethod
     def read_convos(user_name: str, root_path: str, individual_convo: str = None) -> User:
@@ -69,8 +87,8 @@ class ConvoReader:
         """
 
         curr_user = User(user_name, root_path)
+        ConvoReader.unzip_and_merge_files(root_path)
         file_path = os.path.join(root_path, ConvoReader.inbox_path)
-        ConvoReader.unzip_and_merge_files(file_path)
         empty_convo_count = 0
 
         # Identify all conversations in directory (needed even for individual conversations, to search for FB file names)
@@ -137,6 +155,8 @@ class ConvoReader:
 
         raw_msgs_df = pd.concat(raw_msgs_df_list)
         msgs_df = ConvoReader.clean_msg_data(raw_msgs_df)
+        # FIXME: This mask sometimes massively overcounts missed calls
+        msgs_df['missed_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] == 0)
         convo_persons = list(msgs_df["sender_name"].unique())
 
         # Remove conversations where only one person has sent a message (conversations are initialised with one msg)
@@ -146,7 +166,7 @@ class ConvoReader:
         # Check speakers for existing persons and create new persons where necessary
         curr_speakers = curr_user.get_or_create_persons(convo_persons)
 
-        is_group = raw_json["thread_type"] == ConvoReader.group_thread_type
+        is_group = len(msgs_df['sender_name'].unique()) > 2
         is_active = raw_json["is_still_participant"]
         title = raw_json["title"].encode("latin1").decode("utf-8")
 
@@ -205,6 +225,8 @@ class ConvoReader:
         for col in media_cols:
             msgs_df[[col]] = msgs_df[[col]].apply(lambda x: len(x) if type(x) is list else 0)
 
+        # Extract call data
+
         return msgs_df
 
     @staticmethod
@@ -233,10 +255,11 @@ class ConvoReader:
         return fb_convo_str
 
     @staticmethod
-    def build_cache(root_path, cache_root, full_cache_path, user_name):
-        cached_data = None
+    def build_cache(root_path: str, cache_root: str, user_name: str):
 
-        print("Building Cache:")
+        cached_data = None
+        full_cache_path = os.path.join(cache_root, ConvoReader.cache_file_name)
+        logging.info("Building Cache")
 
         try:
             # Import Convos
@@ -250,9 +273,34 @@ class ConvoReader:
                 pickle.dump(cached_data, file_obj)
 
         except IOError:
-            print("Cache Build Failed")
+            logging.info("Cache Build Failed")
 
         else:
-            print("Cache: Built")
+            logging.info("Cache Built")
+
+        return cached_data
+
+    @staticmethod
+    def load_or_create_cache(root_path: str, cache_root: str, user_name: str):
+
+        cached_data = None
+        full_cache_path = os.path.join(cache_root, ConvoReader.cache_file_name)
+
+        if os.path.exists(full_cache_path):
+            try:
+                with open(full_cache_path, "rb") as file_obj:
+                    cached_data = pickle.load(file_obj)
+
+            except IOError:
+                print("The Cache Output Filepath exists but could not be opened. It will be rebuilt")
+                # Delete the previous filepath, triggering a rebuild of the cache
+                shutil.rmtree(cache_root)
+
+            else:
+                print("Cache: Found")
+                # TODO: Add Cache Integrity Check
+
+        if not os.path.exists(full_cache_path):
+            cached_data = ConvoReader.build_cache(root_path, cache_root, user_name)
 
         return cached_data

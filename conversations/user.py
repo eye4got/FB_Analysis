@@ -100,7 +100,8 @@ class User:
 
         return selected_persons
 
-    def build_sma_df(self, sample_period='2W', rolling_window=6, start_date: Union[dt.datetime, None] = None):
+    def build_sma_df(self, sample_period='14D', rolling_window=3, start_date: Union[dt.datetime, None] = None,
+                     end_date: Union[dt.datetime, None] = None):
 
         offset = dt.timedelta(days=int(sample_period[:-1]))
         if start_date:
@@ -114,9 +115,15 @@ class User:
             if start_date:
                 df = df[df.timestamp >= chart_start_dt]
 
+            if end_date:
+                df = df[df.timestamp <= end_date]
+
             # Hacky time saving manoeuvre
             if df.shape[0] < 100:
                 continue
+
+            # Restriction conversation name length, so y axis labels don't get out of hand
+            c_name = c_name if len(c_name) < 32 else c_name[:32] + ' ...'
 
             # Aggregate text counts into periods and then apply a simple moving average
             sma_df = pd.DataFrame()

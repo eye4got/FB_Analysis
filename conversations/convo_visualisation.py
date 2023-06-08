@@ -89,16 +89,16 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
                                                    f'Concentration of char in top 10: {v.nlargest(top_n).sum() / v.sum():.1%}',
                                               'ha': 'right', 'size': 8, 'family': 'Courier New'},
             perpendicular_bar_func='median',
-            figsize=(7, 4),
+            figsize=(8, 4),
             dpi=144,
-            cmap='dark12',
-            title=f'Average Characters Sent/Received on FB Messenger {format_desc}',
-            title_size='',
+            cmap='gist_ncar',
+            title=f'Avg Characters Exchanged on FB Messenger {format_desc}',
+            title_size='12',
             bar_label_size=7,
             tick_label_size=7,
             scale='linear',
             fig=None,
             bar_kwargs={'alpha': .7},
-            filter_column_colors=False
+            filter_column_colors=True
         )
     logging.info("Finished Rendering")
