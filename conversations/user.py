@@ -1,4 +1,7 @@
+import datetime as dt
 from typing import *
+
+import pandas as pd
 
 from conversations.convo import Convo, Person
 
@@ -10,6 +13,8 @@ class User:
         self.root_path = root_path
         self.convos: Dict[str, Convo] = dict()
         self.persons: Dict[str, Person] = dict()
+
+        self.joined_sma_df: pd.DataFrame
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
 
@@ -94,3 +99,45 @@ class User:
             selected_persons[person] = self.persons[person]
 
         return selected_persons
+
+    def build_sma_df(self, sample_period='14D', rolling_window=3, start_date: Union[dt.datetime, None] = None,
+                     end_date: Union[dt.datetime, None] = None):
+
+        offset = dt.timedelta(days=int(sample_period[:-1]))
+        if start_date:
+            chart_start_dt = pd.to_datetime(start_date - (offset * rolling_window) * 2)
+
+        cols_to_combine = []
+        for c_name, convo in self.convos.items():
+
+            df = convo.msgs_df
+            df['timestamp'] = df.index
+            if start_date:
+                df = df[df.timestamp >= chart_start_dt]
+
+            if end_date:
+                df = df[df.timestamp <= end_date]
+
+            # Hacky time saving manoeuvre
+            if df.shape[0] < 100:
+                continue
+
+            # Restriction conversation name length, so y axis labels don't get out of hand
+            c_name = c_name if len(c_name) < 32 else c_name[:32] + ' ...'
+
+            # Aggregate text counts into periods and then apply a simple moving average
+            sma_df = pd.DataFrame()
+            sma_df[c_name] = df.resample(sample_period, on='timestamp', label='right', origin='epoch').text_len.sum()
+            if rolling_window > 1:
+                sma_df[c_name] = sma_df[c_name].rolling(window=rolling_window).mean()
+
+            if sma_df.shape[0] > 0:
+                if start_date:
+                    sma_df = sma_df[sma_df.index >= start_date]
+                else:
+                    sma_df = sma_df[sma_df.index >= sma_df.index.min() + rolling_window * offset]
+
+                cols_to_combine.append(sma_df)
+
+        # Concatenate and fill missing values with zeroes
+        return pd.concat(cols_to_combine, axis=1).fillna(0)  # .drop_duplicates()
