@@ -28,7 +28,7 @@ an executable with a GUI, to enable a user to drill down into their data.
 
 ### Prerequisites
 
-* **Python** version 3.10.6
+* **Python** version 3.10.6 + the libaries listed in `requirements.txt`
 
 * **Facebook data file** in **JSON* format. For instructions on how to download:
   [How do I download a copy of my information on Facebook?](https://www.facebook.com/help/212802592074644?rdrhc)
