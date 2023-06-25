@@ -35,9 +35,9 @@ an executable with a GUI, to enable a user to drill down into their data.
 
   > Note that a bit of a shortcut for this is following the link here: https://www.facebook.com/dyi/?referrer=yfi_settings (rather than traversing through all the settings as the official instructions suggests).
 
-      - **More settings**: In addition to exporting as *JSON* format (important), for smaller data sizes (and therefore faster download) make it only export messages (as opposed to all data) and put image/video quality to low.
+    - **More settings**: In addition to exporting as *JSON* format (important), for smaller data sizes (and therefore faster download) make it only export messages (as opposed to all data) and put image/video quality to low.
 
-      - **Data file location** Place the unzipped data into the (gitignore'd) `raw_data` folder and change the `root_path` variable in `main.py` to be the folder name of your data.
+    - **Data file location** Place the unzipped data into the (gitignore'd) `raw_data` folder and change the `root_path` variable in `main.py` to be the folder name of your data.
 
 * **FFMpeg** Version: 2023-05-15-git-2953ebe7b6-full_build-www.gyan.dev For instructions on how to install:
   [How to install FFMpeg](https://www.linkedin.com/pulse/step-solve-common-error-racing-bar-chart-ffmpeg-available-yang/)
