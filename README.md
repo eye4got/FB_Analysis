@@ -37,7 +37,7 @@ an executable with a GUI, to enable a user to drill down into their data.
 
     - **More settings**: In addition to exporting as *JSON* format (important), for smaller data sizes (and therefore faster download) make it only export messages (as opposed to all data) and put image/video quality to low.
 
-    - **Data file location** Place the unzipped data into the (gitignore'd) `raw_data` folder and change the `root_path` variable in `main.py` to be the folder name of your data.
+    - **Data file location** Place the unzipped data into the (gitignore'd) `raw_data` folder and change the `root_path` and `user_name` variables in `main.py` to reflect the folder name of your unzipped data and username respectively.
 
 * **FFMpeg** Version: 2023-05-15-git-2953ebe7b6-full_build-www.gyan.dev For instructions on how to install:
   [How to install FFMpeg](https://www.linkedin.com/pulse/step-solve-common-error-racing-bar-chart-ffmpeg-available-yang/)
