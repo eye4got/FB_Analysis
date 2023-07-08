@@ -19,7 +19,19 @@ root_path = os.path.join("raw_data", "facebook-rainebianchini")
 output_root = "output"
 cache_root = "cache"
 user_name = "Raine Bianchini"
+
+
 # TODO: add options for create_files?
+
+def catch_graph_save_errs(fig, filepath, convo_name):
+    # Bad practice catchall, but program shouldn't halt because of any file I/O error
+    # FIXME: Check for collisions ahead of time and add custom suffix
+    try:
+        fig.savefig(filepath)
+
+    except Exception as err:
+        logging.warning(f"Failed to save graph for Convo: {convo_name}, due to the following: {err}")
+
 
 # STARTUP
 print("\nAnalysis of FaceBook Data by Raine Bianchini")
@@ -116,8 +128,8 @@ while choice_main[0] != "0":
 
                     output_dir = os.path.join(output_root, convo.cleaned_name)
                     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-                    hist_obj.savefig(os.path.join(output_dir, "Time of Day Histogram.jpeg"))
-
+                    catch_graph_save_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"),
+                                          convo.convo_name)
 
             # GENERATE CONVERSATION MSG COUNT TIMELINE
             elif choice_graph_list[0] == "2":
@@ -136,7 +148,8 @@ while choice_main[0] != "0":
 
                     output_dir = os.path.join(output_root, convo.cleaned_name)
                     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-                    hist_obj.savefig(os.path.join(output_dir, "Conversation Timeline.jpeg"))
+                    catch_graph_save_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
+                                          convo.convo_name)
 
             # GENERATE RACING BAR CHART ANIMATION
             elif choice_graph_list[0] == "3":
@@ -202,6 +215,7 @@ while choice_main[0] != "0":
                             pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
                             convo_visualisation.create_bcr_top_convo_animation(joined_sma_df, top_convo_num,
                                                                                output_root, title_format_desc)
+
 
                     elif racing_bar_config.upper().startswith('Q'):
                         config_is_correct = True

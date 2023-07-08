@@ -5,6 +5,7 @@ import pathlib
 import pickle
 import re
 import shutil
+import time
 import zipfile
 from typing import *
 
@@ -159,6 +160,17 @@ class ConvoReader:
         msgs_df['missed_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] == 0)
         convo_persons = list(msgs_df["sender_name"].unique())
 
+        # Keep track of conversations with people who have deleted their account if there are more than the initial
+        # number of messages (using proxy names), otherwise remove
+        if '' in convo_persons:
+            if msgs_df.shape[0] > 2:
+                for idx, val in enumerate(convo_persons):
+                    if val == '':
+                        curr_user.unknown_people += 1
+                        convo_persons[idx] = f"Unknown Person #{curr_user.unknown_people}"
+            else:
+                convo_persons = [x for x in convo_persons if x != '']
+
         # Remove conversations where only one person has sent a message (conversations are initialised with one msg)
         if len(convo_persons) < 2:
             return None
@@ -169,6 +181,10 @@ class ConvoReader:
         is_group = len(msgs_df['sender_name'].unique()) > 2
         is_active = raw_json["is_still_participant"]
         title = raw_json["title"].encode("latin1").decode("utf-8")
+
+        if title == '':
+            curr_user.unknown_convos += 1
+            title = ', '.join([x for x in curr_speakers if x != curr_user.name])
 
         return Convo(title, curr_speakers, is_active, is_group, msgs_df)
 
@@ -203,31 +219,34 @@ class ConvoReader:
         :return: A dataframe of accessible and flattened messages in a conversation
         """
 
-        msgs_df.rename(columns=ConvoReader.facebook_field_names, inplace=True)
+        renamed_msgs_df = msgs_df.rename(columns=ConvoReader.facebook_field_names)
 
         # Convert timestamp, reindex and use to sort
-        msgs_df["timestamp"] = pd.to_datetime(msgs_df["timestamp"], unit="ms")
-        msgs_df = msgs_df.set_index("timestamp").sort_index()
+        # FIXME: Fix janky hack to convert all timestamps from UTC to local zone, or at least provide an override
+        # Unfortunately Facebook gives us insufficient information to infer the tz of the sender for each message
+        renamed_msgs_df["timestamp"] = pd.to_datetime(renamed_msgs_df["timestamp"], unit="ms", utc=True)
+        cleaned_df = renamed_msgs_df.set_index("timestamp").sort_index().tz_convert(time.strftime("%z"))
 
         # Decode Sender Names (As this doesn't appear to happen as part of general re-encoding)
-        msgs_df["sender_name"] = msgs_df["sender_name"].apply(lambda x: x.encode("latin1").decode("utf-8"))
+        cleaned_df["sender_name"] = cleaned_df["sender_name"].apply(lambda x: x.encode("latin1").decode("utf-8"))
 
         # Clean reaction encoding FIXME: poor way to split out str into dict, however performance is not terrible
-        msgs_df["reactions_dict"] = msgs_df["reactions_dict"].apply(lambda x: ConvoReader.restructure_reactions(x))
+        cleaned_df["reactions_dict"] = cleaned_df["reactions_dict"].apply(
+            lambda x: ConvoReader.restructure_reactions(x))
 
         # Split out reactions into individual columns
-        reactions_df = pd.DataFrame(msgs_df['reactions_dict'].values.tolist(), index=msgs_df.index)
-        msgs_df = pd.concat([msgs_df, reactions_df], axis=1)
-        msgs_df.drop("reactions_dict", axis='columns', inplace=True)
+        reactions_df = pd.DataFrame(cleaned_df['reactions_dict'].values.tolist(), index=cleaned_df.index)
+        cleaned_df = pd.concat([cleaned_df, reactions_df], axis=1)
+        cleaned_df.drop("reactions_dict", axis='columns', inplace=True)
 
         # Extract video and photo counts (don't need nested uris)
         media_cols = ["photos", "videos", "audio_files", "files"]
         for col in media_cols:
-            msgs_df[[col]] = msgs_df[[col]].apply(lambda x: len(x) if type(x) is list else 0)
+            cleaned_df[[col]] = cleaned_df[[col]].apply(lambda x: len(x) if type(x) is list else 0)
 
         # Extract call data
 
-        return msgs_df
+        return cleaned_df
 
     @staticmethod
     def find_individual_convo_path(individual_name: str, convo_list: List[str]) -> str:
