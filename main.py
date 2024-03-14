@@ -23,7 +23,7 @@ user_name = "Raine Bianchini"
 
 # TODO: add options for create_files?
 
-def catch_graph_save_errs(fig, filepath, convo_name):
+def save_graph_catch_errs(fig, filepath, convo_name):
     # Bad practice catchall, but program shouldn't halt because of any file I/O error
     # FIXME: Check for collisions ahead of time and add custom suffix
     try:
@@ -128,7 +128,7 @@ while choice_main[0] != "0":
 
                     output_dir = os.path.join(output_root, convo.cleaned_name)
                     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-                    catch_graph_save_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"),
+                    save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"),
                                           convo.convo_name)
 
             # GENERATE CONVERSATION MSG COUNT TIMELINE
@@ -148,7 +148,7 @@ while choice_main[0] != "0":
 
                     output_dir = os.path.join(output_root, convo.cleaned_name)
                     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-                    catch_graph_save_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
+                    save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
                                           convo.convo_name)
 
             # GENERATE RACING BAR CHART ANIMATION
