@@ -39,5 +39,10 @@ an executable with a GUI, to enable a user to drill down into their data.
 
     - **Data file location** Place the unzipped data into the (gitignore'd) `raw_data` folder and change the `root_path` and `user_name` variables in `main.py` to reflect the folder name of your unzipped data and username respectively.
 
-* **FFMpeg** Version: 2023-05-15-git-2953ebe7b6-full_build-www.gyan.dev For instructions on how to install:
+* **FFMpeg** Version: ffmpeg-2024-03-14-git-2129d66a66-full_build-www.gyan.dev For instructions on how to install, see
+  the pip and github releases instructions from gyan:
   [How to install FFMpeg](https://www.linkedin.com/pulse/step-solve-common-error-racing-bar-chart-ffmpeg-available-yang/)
+
+### References and Notes
+
+* VADER Paper: http://eegilbert.org/papers/icwsm14.vader.hutto.pdf

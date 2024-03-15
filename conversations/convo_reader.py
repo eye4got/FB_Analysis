@@ -6,6 +6,7 @@ import pickle
 import re
 import shutil
 import time
+import warnings
 import zipfile
 from typing import *
 
@@ -40,6 +41,29 @@ class ConvoReader:
         "audio_files": "audio_files",
         "gifs": "gifs"
     }
+
+    facebook_field_types = {
+        "sender_name": pd.Series(dtype='str'),
+        "timestamp_ms": pd.Series(dtype='int64'),
+        "content": pd.Series(dtype='str'),
+        "reactions": pd.Series(dtype='object'),
+        "type": pd.Series(dtype='str'),
+        "is_unsent": pd.Series(dtype='str'),
+        "photos": pd.Series(dtype='str'),
+        "share.link": pd.Series(dtype='str'),
+        "sticker.uri": pd.Series(dtype='str'),
+        "call_duration": pd.Series(dtype='float64'),
+        "videos": pd.Series(dtype='str'),
+        "share.share_text": pd.Series(dtype='str'),
+        "files": pd.Series(dtype='str'),
+        "missed": pd.Series(dtype='bool'),
+        "audio_files": pd.Series(dtype='str'),
+        "gifs": pd.Series(dtype='str')
+    }
+
+    if set(facebook_field_names.keys()) != set(facebook_field_types.keys()):
+        raise ValueError(
+            "Safety Check Failed: All keys in the field types must be keys in the field names (consistent input pattern)")
 
     @staticmethod
     def unzip_and_merge_files(file_path):
@@ -137,7 +161,7 @@ class ConvoReader:
         full_path_json_list = [os.path.join(file_path, x) for x in json_list]
 
         # Setup conversation Dataframe (to guarantee all cols exist, loop through each JSON file and append new rows
-        raw_msgs_df_list = [pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())]
+        raw_msgs_df_list = [pd.DataFrame(ConvoReader.facebook_field_types, index=[])]
 
         for path in full_path_json_list:
             # Load json as string as its nesting doesn't allow direct normalisation
@@ -154,20 +178,29 @@ class ConvoReader:
             # Add json normalised data to list, for performant appending once all have been collected
             raw_msgs_df_list.append(pd.json_normalize(raw_json["messages"]))
 
-        raw_msgs_df = pd.concat(raw_msgs_df_list)
+        # Ignore FutureWarning that empty df types will affect result, I explicitly want that to happen as I have set them
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw_msgs_df = pd.concat(raw_msgs_df_list)
+
         msgs_df = ConvoReader.clean_msg_data(raw_msgs_df)
-        # FIXME: This mask sometimes massively overcounts missed calls
         msgs_df['missed_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] == 0)
+        msgs_df['successful_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] > 0)
         convo_persons = list(msgs_df["sender_name"].unique())
 
         # Keep track of conversations with people who have deleted their account if there are more than the initial
         # number of messages (using proxy names), otherwise remove
+        # If multiple unknown people are in the same conversation, they will likely be combined. There is little we can do
         if '' in convo_persons:
             if msgs_df.shape[0] > 2:
                 for idx, val in enumerate(convo_persons):
                     if val == '':
                         curr_user.unknown_people += 1
-                        convo_persons[idx] = f"Unknown Person #{curr_user.unknown_people}"
+                        new_label = f"Unknown Person #{curr_user.unknown_people}"
+                        convo_persons[idx] = new_label
+
+                        # Change their sender name, so that it aligns with speakers list
+                        msgs_df['sender_name'] = msgs_df['sender_name'].replace('', new_label)
             else:
                 convo_persons = [x for x in convo_persons if x != '']
 
@@ -242,7 +275,7 @@ class ConvoReader:
         # Extract video and photo counts (don't need nested uris)
         media_cols = ["photos", "videos", "audio_files", "files"]
         for col in media_cols:
-            cleaned_df[[col]] = cleaned_df[[col]].apply(lambda x: len(x) if type(x) is list else 0)
+            cleaned_df[col] = cleaned_df[col].apply(lambda x: len(x) if type(x) is list else 0)
 
         # Extract call data
 

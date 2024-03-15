@@ -19,7 +19,8 @@ class Convo:
         'sender_name': 'Messages',
         'text_len': 'Character Count',
         'photos': 'Photos',
-        'call_duration': 'Successful Calls',
+        'call_duration': 'Call Time (Min)',
+        'successful_call': 'Successful Calls',
         'missed_call': 'Missed Calls',
         'videos': 'Videos',
         'gifs': 'GIFs',
@@ -57,21 +58,21 @@ class Convo:
         output = f'''Conversation Name: {self.convo_name}\n
                      Participants: {', '.join(self.speakers.keys())}\n\n'''
 
-        subset_cols = ['sender_name', 'text_len', 'photos', 'share_link', 'sticker_path', 'call_duration', 'videos',
-                       'files', 'audio_files', 'missed_call', 'gifs']
+        subset_cols = ['sender_name', 'text_len', 'photos', 'share_link', 'sticker_path', 'call_duration',
+                       'successful_call', 'missed_call', 'videos', 'files', 'audio_files', 'gifs']
         reaction_cols = [x for x in self.msgs_df.columns if '_reaction' in x]
         subset_cols.extend(reaction_cols)
 
         # Media Columns have counts of elements per message, need to sum these instead of counting
-        agg_method = {}
-        media_cols = ['photos', 'videos', 'audio_files', 'files', 'missed_calls', 'text_len']
-        for col in subset_cols:
-            agg_method[col] = ['count'] if col not in media_cols else ['sum']
+        # Most columns just need to be counted (how many links, stickers etc)
+        sum_cols = ['photos', 'videos', 'audio_files', 'files', 'missed_call', 'successful_call', 'text_len',
+                    'call_duration']
+        agg_method = {col: ['count'] if col not in sum_cols else ['sum'] for col in subset_cols}
 
         # Apply aggregation methods determined by above dict
         counts_df = self.msgs_df[subset_cols].groupby('sender_name').agg(agg_method)
 
-        counts_df['call_duration'] -= counts_df['missed_call']  # Remove calls with 0 duration
+        counts_df['call_duration'] = (counts_df['call_duration'] / 60).round(1)  # Convert from seconds to minutes
 
         # Collapse multi-index columns, rename using class field dictionary and prettified reaction cols
         cleaned_reaction_cols = [x.replace('_', ' ').title() for x in reaction_cols]
@@ -80,7 +81,7 @@ class Convo:
         counts_df.columns = counts_df.columns.get_level_values(0)
         counts_df.rename(columns=renamed_count_cols, inplace=True)
 
-        output += tabulate(counts_df, headers=counts_df.columns)
+        output += tabulate(counts_df, headers=counts_df.columns, intfmt=",")
 
         return output
 
@@ -141,7 +142,7 @@ class Convo:
         ):
             filename = f'_{filename}'
 
-        # Avoid exceeding windows char limit (plus some buffer for avoiding collisions
+        # Avoid exceeding windows char limit (plus some buffer for avoiding collisions)
         if len(filename) > 250:
             filename = filename[:250]
 

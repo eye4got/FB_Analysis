@@ -12,6 +12,11 @@ from conversations.convo_reader import ConvoReader
 # logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
 logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(asctime)s - %(message)s')
 
+# Silence MatplotLib INFO warnings
+mlogger = logging.getLogger('matplotlib')
+mlogger.setLevel(logging.WARNING)
+
+# Make modules accessible through convenient names
 sys.path.append("conversations")
 
 # Custom Inputs, Replace with questions
@@ -126,7 +131,8 @@ while choice_main[0] != "0":
                     hist_dataset = convo.get_char_counts_by_hour()
                     hist_obj = convo_visualisation.create_msg_time_hist(hist_dataset, convo.convo_name)
 
-                    output_dir = os.path.join(output_root, convo.cleaned_name)
+                    # Use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
+                    output_dir = r'//?/' + os.path.join(os.path.abspath(output_root), convo.cleaned_name)
                     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
                     save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"),
                                           convo.convo_name)
@@ -139,14 +145,15 @@ while choice_main[0] != "0":
 
                 for ii, convo in enumerate(cached_data.convos.values()):
 
-                    # Print out progress every 50 conversations FIXME: logging needs to replace this
+                    # Print out progress every 50 conversations
                     if ii % 50 == 0:
                         print(f"\t\t{ii} / {len(cached_data.convos)}")
 
                     speakers = list(convo.speakers.keys())
                     hist_obj = convo_visualisation.create_timeline_hist(convo.convo_name, convo.msgs_df, speakers)
 
-                    output_dir = os.path.join(output_root, convo.cleaned_name)
+                    # Use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
+                    output_dir = r'//?/' + os.path.join(os.path.abspath(output_root), convo.cleaned_name)
                     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
                     save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
                                           convo.convo_name)
