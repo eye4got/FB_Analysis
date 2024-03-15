@@ -5,6 +5,8 @@ import pathlib
 import pickle
 import re
 import shutil
+import time
+import warnings
 import zipfile
 from typing import *
 
@@ -39,6 +41,29 @@ class ConvoReader:
         "audio_files": "audio_files",
         "gifs": "gifs"
     }
+
+    facebook_field_types = {
+        "sender_name": pd.Series(dtype='str'),
+        "timestamp_ms": pd.Series(dtype='int64'),
+        "content": pd.Series(dtype='str'),
+        "reactions": pd.Series(dtype='object'),
+        "type": pd.Series(dtype='str'),
+        "is_unsent": pd.Series(dtype='str'),
+        "photos": pd.Series(dtype='str'),
+        "share.link": pd.Series(dtype='str'),
+        "sticker.uri": pd.Series(dtype='str'),
+        "call_duration": pd.Series(dtype='float64'),
+        "videos": pd.Series(dtype='str'),
+        "share.share_text": pd.Series(dtype='str'),
+        "files": pd.Series(dtype='str'),
+        "missed": pd.Series(dtype='bool'),
+        "audio_files": pd.Series(dtype='str'),
+        "gifs": pd.Series(dtype='str')
+    }
+
+    if set(facebook_field_names.keys()) != set(facebook_field_types.keys()):
+        raise ValueError(
+            "Safety Check Failed: All keys in the field types must be keys in the field names (consistent input pattern)")
 
     @staticmethod
     def unzip_and_merge_files(file_path):
@@ -136,7 +161,7 @@ class ConvoReader:
         full_path_json_list = [os.path.join(file_path, x) for x in json_list]
 
         # Setup conversation Dataframe (to guarantee all cols exist, loop through each JSON file and append new rows
-        raw_msgs_df_list = [pd.DataFrame(columns=ConvoReader.facebook_field_names.keys())]
+        raw_msgs_df_list = [pd.DataFrame(ConvoReader.facebook_field_types, index=[])]
 
         for path in full_path_json_list:
             # Load json as string as its nesting doesn't allow direct normalisation
@@ -153,11 +178,31 @@ class ConvoReader:
             # Add json normalised data to list, for performant appending once all have been collected
             raw_msgs_df_list.append(pd.json_normalize(raw_json["messages"]))
 
-        raw_msgs_df = pd.concat(raw_msgs_df_list)
+        # Ignore FutureWarning that empty df types will affect result, I explicitly want that to happen as I have set them
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw_msgs_df = pd.concat(raw_msgs_df_list)
+
         msgs_df = ConvoReader.clean_msg_data(raw_msgs_df)
-        # FIXME: This mask sometimes massively overcounts missed calls
         msgs_df['missed_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] == 0)
+        msgs_df['successful_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] > 0)
         convo_persons = list(msgs_df["sender_name"].unique())
+
+        # Keep track of conversations with people who have deleted their account if there are more than the initial
+        # number of messages (using proxy names), otherwise remove
+        # If multiple unknown people are in the same conversation, they will likely be combined. There is little we can do
+        if '' in convo_persons:
+            if msgs_df.shape[0] > 2:
+                for idx, val in enumerate(convo_persons):
+                    if val == '':
+                        curr_user.unknown_people += 1
+                        new_label = f"Unknown Person #{curr_user.unknown_people}"
+                        convo_persons[idx] = new_label
+
+                        # Change their sender name, so that it aligns with speakers list
+                        msgs_df['sender_name'] = msgs_df['sender_name'].replace('', new_label)
+            else:
+                convo_persons = [x for x in convo_persons if x != '']
 
         # Remove conversations where only one person has sent a message (conversations are initialised with one msg)
         if len(convo_persons) < 2:
@@ -169,6 +214,10 @@ class ConvoReader:
         is_group = len(msgs_df['sender_name'].unique()) > 2
         is_active = raw_json["is_still_participant"]
         title = raw_json["title"].encode("latin1").decode("utf-8")
+
+        if title == '':
+            curr_user.unknown_convos += 1
+            title = ', '.join([x for x in curr_speakers if x != curr_user.name])
 
         return Convo(title, curr_speakers, is_active, is_group, msgs_df)
 
@@ -203,31 +252,34 @@ class ConvoReader:
         :return: A dataframe of accessible and flattened messages in a conversation
         """
 
-        msgs_df.rename(columns=ConvoReader.facebook_field_names, inplace=True)
+        renamed_msgs_df = msgs_df.rename(columns=ConvoReader.facebook_field_names)
 
         # Convert timestamp, reindex and use to sort
-        msgs_df["timestamp"] = pd.to_datetime(msgs_df["timestamp"], unit="ms")
-        msgs_df = msgs_df.set_index("timestamp").sort_index()
+        # FIXME: Fix janky hack to convert all timestamps from UTC to local zone, or at least provide an override
+        # Unfortunately Facebook gives us insufficient information to infer the tz of the sender for each message
+        renamed_msgs_df["timestamp"] = pd.to_datetime(renamed_msgs_df["timestamp"], unit="ms", utc=True)
+        cleaned_df = renamed_msgs_df.set_index("timestamp").sort_index().tz_convert(time.strftime("%z"))
 
         # Decode Sender Names (As this doesn't appear to happen as part of general re-encoding)
-        msgs_df["sender_name"] = msgs_df["sender_name"].apply(lambda x: x.encode("latin1").decode("utf-8"))
+        cleaned_df["sender_name"] = cleaned_df["sender_name"].apply(lambda x: x.encode("latin1").decode("utf-8"))
 
         # Clean reaction encoding FIXME: poor way to split out str into dict, however performance is not terrible
-        msgs_df["reactions_dict"] = msgs_df["reactions_dict"].apply(lambda x: ConvoReader.restructure_reactions(x))
+        cleaned_df["reactions_dict"] = cleaned_df["reactions_dict"].apply(
+            lambda x: ConvoReader.restructure_reactions(x))
 
         # Split out reactions into individual columns
-        reactions_df = pd.DataFrame(msgs_df['reactions_dict'].values.tolist(), index=msgs_df.index)
-        msgs_df = pd.concat([msgs_df, reactions_df], axis=1)
-        msgs_df.drop("reactions_dict", axis='columns', inplace=True)
+        reactions_df = pd.DataFrame(cleaned_df['reactions_dict'].values.tolist(), index=cleaned_df.index)
+        cleaned_df = pd.concat([cleaned_df, reactions_df], axis=1)
+        cleaned_df.drop("reactions_dict", axis='columns', inplace=True)
 
         # Extract video and photo counts (don't need nested uris)
         media_cols = ["photos", "videos", "audio_files", "files"]
         for col in media_cols:
-            msgs_df[[col]] = msgs_df[[col]].apply(lambda x: len(x) if type(x) is list else 0)
+            cleaned_df[col] = cleaned_df[col].apply(lambda x: len(x) if type(x) is list else 0)
 
         # Extract call data
 
-        return msgs_df
+        return cleaned_df
 
     @staticmethod
     def find_individual_convo_path(individual_name: str, convo_list: List[str]) -> str:

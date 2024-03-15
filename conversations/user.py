@@ -14,6 +14,9 @@ class User:
         self.convos: Dict[str, Convo] = dict()
         self.persons: Dict[str, Person] = dict()
 
+        self.unknown_people = 0
+        self.unknown_convos = 0
+
         self.joined_sma_df: pd.DataFrame
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
