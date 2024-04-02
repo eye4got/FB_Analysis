@@ -2,10 +2,14 @@ import os
 import re
 from typing import *
 
+import nltk
 import pandas as pd
 import unicodedata
 # from django.utils.text import slugify
 from tabulate import tabulate
+
+nltk.download('vader_lexicon')
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 
 class Person:
@@ -31,7 +35,7 @@ class Convo:
     }
 
     def __init__(self, name: str, speakers: Dict[str, Person], is_active: bool, is_group: bool,
-                 messages_df: pd.DataFrame):
+                 messages_df: pd.DataFrame, sa_params: Dict):
         self.convo_name = name
         # For file paths and similar restricted character sets
         speakers_excl_user = [key for key, val in speakers.items() if key != name]
@@ -53,6 +57,9 @@ class Convo:
 
         # Create character counts for each message
         self.msgs_df['text_len'] = self.msgs_df['text'].apply(lambda x: len(x) if type(x) == str else 0)
+
+        # Create df of aggregated sentiment analysis over time
+        self.vader_df = self.build_sentiment_analysis_df(sa_params['agg_period'], sa_params['min_period_char'])
 
     def __str__(self) -> str:
         output = f'''Conversation Name: {self.convo_name}\n
@@ -97,6 +104,40 @@ class Convo:
         hours_series.sort_index()
 
         return hours_series.T
+
+    def build_sentiment_analysis_df(self, sample_period: str, min_period_char: int) -> [pd.DataFrame, None]:
+
+        # Leave field empty for convos with <100 messages
+        if self.msgs_df.shape[0] < 100: return None
+
+        df = self.msgs_df.copy()
+
+        # Transform to suitable format
+        df['text'] = df['text'].astype(str)
+        period_msgs_df = (df.query("text_len > 0")
+                          .loc[:, ('sender_name', 'text')]
+                          .groupby(['sender_name'])
+                          .resample(sample_period)
+                          .agg({'text': ' '.join})
+
+                          # Filter only for periods that meet the minimum character requirement for the period
+                          .query(f"text.str.len() >= {min_period_char}")
+
+                          # Remove empty periods that resample adds
+                          .dropna()
+                          .reset_index()
+                          )
+
+        # After filtering for size etc, make sure there is sufficient data to trend sentiment over time
+        if period_msgs_df.shape[0] < 10: return None
+
+        vader_results = period_msgs_df['text'].apply(
+            lambda x: pd.Series(SentimentIntensityAnalyzer().polarity_scores(x)))
+        period_msgs_df = period_msgs_df.join(vader_results)
+
+        period_msgs_df['text_len'] = period_msgs_df['text'].str.len()
+
+        return period_msgs_df
 
     # Following function was stolen from https://github.com/pallets/werkzeug/blob/a3b4572a34269efaca4d91fa4cd07dd7f6f94b6d/src/werkzeug/utils.py#L174-L218
     # As I didn't want to install their entire package or alternatives such as Django

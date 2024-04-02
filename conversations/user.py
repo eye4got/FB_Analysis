@@ -1,6 +1,8 @@
 import datetime as dt
+import math
 from typing import *
 
+import numpy as np
 import pandas as pd
 
 from conversations.convo import Convo, Person
@@ -8,7 +10,9 @@ from conversations.convo import Convo, Person
 
 class User:
 
-    def __init__(self, name: str, root_path: str):
+    def __init__(self, name: str, root_path: str, sa_params=dict()):
+        if sa_params is None:
+            sa_params = dict()
         self.name = name
         self.root_path = root_path
         self.convos: Dict[str, Convo] = dict()
@@ -18,6 +22,19 @@ class User:
         self.unknown_convos = 0
 
         self.joined_sma_df: pd.DataFrame
+
+        # Ensure params are set at least with default values for sentiment analysis
+        if 'agg_period' not in sa_params:
+            sa_params['agg_period'] = '3D'
+
+        if 'min_period_char' not in sa_params:
+            sa_params['min_period_char'] = 300
+
+        self.sentiment_analysis_params = sa_params
+
+        # Benchmarking statistics (impossible default values)
+        self.sentiment_std = -1
+        self.sentiment_mean = 2
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
 
@@ -84,6 +101,9 @@ class User:
 
         return ratios_list
 
+    def get_convos_ranked_by_affect(self, desc_affect: bool, n: int = 100, no_groupchats: bool = True,
+                                    min_msgs: int = 200) -> List[Tuple[str, int]]:
+
     def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
 
         """
@@ -104,7 +124,7 @@ class User:
         return selected_persons
 
     def build_sma_df(self, sample_period='14D', rolling_window=3, start_date: Union[dt.datetime, None] = None,
-                     end_date: Union[dt.datetime, None] = None):
+                     end_date: Union[dt.datetime, None] = None) -> pd.DataFrame:
 
         offset = dt.timedelta(days=int(sample_period[:-1]))
         if start_date:
@@ -113,7 +133,7 @@ class User:
         cols_to_combine = []
         for c_name, convo in self.convos.items():
 
-            df = convo.msgs_df
+            df = convo.msgs_df.copy()
             df['timestamp'] = df.index
             if start_date:
                 df = df[df.timestamp >= chart_start_dt]
@@ -121,11 +141,11 @@ class User:
             if end_date:
                 df = df[df.timestamp <= end_date]
 
-            # Hacky time saving manoeuvre
+            # Hacky time saving manoeuvre skipping conversations with less than 100 messages
             if df.shape[0] < 100:
                 continue
 
-            # Restriction conversation name length, so y axis labels don't get out of hand
+            # Restrict conversation name length, so y axis labels don't get out of hand
             c_name = c_name if len(c_name) < 32 else c_name[:32] + ' ...'
 
             # Aggregate text counts into periods and then apply a simple moving average
@@ -144,3 +164,20 @@ class User:
 
         # Concatenate and fill missing values with zeroes
         return pd.concat(cols_to_combine, axis=1).fillna(0)  # .drop_duplicates()
+
+    def calc_sa_benchmarks(self):
+        # Filter to only conversations with sentiment scores for current user
+        df_list = [convo.vader_df for convo in self.convos.values() if convo.vader_df is not None]
+        filtered_df_list = [df[df['sender_name'] == self.name] for df in df_list]
+
+        weights = [df['text_len'].sum() for df in filtered_df_list]
+        weighted_values = [(df['compound'] * df['text_len']).sum() for df in filtered_df_list]
+        self.sentiment_mean = sum(weighted_values) / sum(weights)
+
+        weighted_diffs = [(np.power(df['compound'] - self.sentiment_mean, 2) * df['text_len']).sum() for df in
+                          filtered_df_list]
+
+        obs_count = sum(df.shape[0] for df in filtered_df_list)
+        bias_correction = (obs_count - 1) / obs_count
+
+        self.sentiment_std = math.sqrt(sum(weighted_diffs) / (bias_correction * sum(weights)))

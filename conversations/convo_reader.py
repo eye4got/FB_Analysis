@@ -137,10 +137,12 @@ class ConvoReader:
             else:
                 empty_convo_count += 1
 
-        if empty_convo_count > 0:
-            logging.info(f"\n{empty_convo_count} conversations were empty")
+        logging.info(f"{empty_convo_count} conversations were empty")
+        logging.info(
+            f"{sum(x.vader_df is None for x in curr_user.convos.values())} conversations had no vader analysis")
 
         curr_user.build_sma_df()
+        curr_user.calc_sa_benchmarks()
 
         return curr_user
 
@@ -167,7 +169,7 @@ class ConvoReader:
             # Load json as string as its nesting doesn't allow direct normalisation
             try:
                 with open(path) as file_obj:
-                    raw_json_file_str = file_obj.read().encode("latin1").decode("utf-8")
+                    raw_json_file_str = file_obj.read()
                     raw_json = json.loads(raw_json_file_str)
 
             except FileNotFoundError as err:
@@ -219,7 +221,7 @@ class ConvoReader:
             curr_user.unknown_convos += 1
             title = ', '.join([x for x in curr_speakers if x != curr_user.name])
 
-        return Convo(title, curr_speakers, is_active, is_group, msgs_df)
+        return Convo(title, curr_speakers, is_active, is_group, msgs_df, curr_user.sentiment_analysis_params)
 
     @staticmethod
     def restructure_reactions(reactions_list):
@@ -260,8 +262,10 @@ class ConvoReader:
         renamed_msgs_df["timestamp"] = pd.to_datetime(renamed_msgs_df["timestamp"], unit="ms", utc=True)
         cleaned_df = renamed_msgs_df.set_index("timestamp").sort_index().tz_convert(time.strftime("%z"))
 
-        # Decode Sender Names (As this doesn't appear to happen as part of general re-encoding)
-        cleaned_df["sender_name"] = cleaned_df["sender_name"].apply(lambda x: x.encode("latin1").decode("utf-8"))
+        # Decode fields with potential utf-8 characters
+        cleaned_df["sender_name"] = cleaned_df["sender_name"].astype(str).apply(
+            lambda x: x.encode("latin1").decode("utf-8"))
+        cleaned_df["text"] = cleaned_df["text"].astype(str).apply(lambda x: x.encode("latin1").decode("utf-8"))
 
         # Clean reaction encoding FIXME: poor way to split out str into dict, however performance is not terrible
         cleaned_df["reactions_dict"] = cleaned_df["reactions_dict"].apply(
