@@ -123,6 +123,7 @@ class ConvoReader:
             convo_list = [ConvoReader.find_individual_convo_path(individual_convo, convo_list)]
 
         # Extract each conversation
+        logging.info("Extracting conversations:")
         for ii, convo_path in enumerate(convo_list):
 
             # Print out progress every 50 conversations
@@ -138,11 +139,9 @@ class ConvoReader:
                 empty_convo_count += 1
 
         logging.info(f"{empty_convo_count} conversations were empty")
-        logging.info(
-            f"{sum(x.vader_df is None for x in curr_user.convos.values())} conversations had no vader analysis")
 
         curr_user.build_sma_df()
-        curr_user.calc_sa_benchmarks()
+        curr_user.get_or_create_affect_df()
 
         return curr_user
 
@@ -221,7 +220,7 @@ class ConvoReader:
             curr_user.unknown_convos += 1
             title = ', '.join([x for x in curr_speakers if x != curr_user.name])
 
-        return Convo(title, curr_speakers, is_active, is_group, msgs_df, curr_user.sentiment_analysis_params)
+        return Convo(title, curr_speakers, is_active, is_group, msgs_df)
 
     @staticmethod
     def restructure_reactions(reactions_list):

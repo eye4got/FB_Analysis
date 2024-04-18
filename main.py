@@ -6,6 +6,8 @@ import re
 import shutil
 import sys
 
+import numpy as np
+
 from conversations import convo_visualisation
 from conversations.convo_reader import ConvoReader
 
@@ -113,6 +115,7 @@ while choice_main[0] != "0":
             print("(1)\tTime of Day Histograms")
             print("(2)\tConversation Timelines")
             print("(3)\tRacing Bar Chart Animation")
+            print("(4)\tSentiment Distribution Comparison Graphs")
             print("(0)\tEscape to Top Menu\n")
             choice_graph_list = input("")
 
@@ -230,6 +233,100 @@ while choice_main[0] != "0":
 
                     else:
                         print("Config did not match format, please try again!")
+
+            # GENERATE SENTIMENT SAMPLE VS POPULATION DISTRIBUTION COMPARISON GRAPHS
+            elif choice_graph_list[0] == "4":
+                config_is_correct = False
+                while not config_is_correct:
+                    print("Config for Sentiment Distribution Comparisons:")
+                    print("*******************************************************")
+                    print("If you enter parameters, you will regenerate sentiment scores for all conversations")
+                    print("[Time Period for each datapoint] [Min characters per Period] [Min periods]\n")
+
+                    print("Time Period: How many days of data to aggregate for each time period")
+                    print("\tFormat: optional number then capital letter E.g. 3D, 14D\n")
+                    print("Min Characters: Filter out periods with less than this number of characters")
+                    print("\tFormat: integer greater than 1 \n")
+                    print(
+                        "Min Periods: Exclude convos with less than this number of periods, as a distribution cannot be established")
+                    print("\tFormat: integer greater than 1 \n")
+
+                    print("Recommended Config:")
+                    recommended_config = f"3D 500 20"
+                    print(recommended_config)
+                    sentiment_dist_config = input("Selection: ")
+
+                    if sentiment_dist_config:
+
+                        # Only allow days because weeks/months override the origin and offset args in pandas.resample
+                        config_regex = r'(\d{1,3}D)\s(\d*)\s(\d*)'
+
+                        matched_config = re.match(config_regex, sentiment_dist_config, re.IGNORECASE)
+                        if matched_config:
+                            try:
+                                sample_period = matched_config[1]
+                                min_char_num = int(matched_config[2])
+                                min_period_count = int(matched_config[3])
+
+                            except Exception as err:
+                                print("\nIncorrect config:")
+                                print(err)
+                            else:
+                                config_is_correct = True
+                                print("\nCleaning data .... \n")
+                                cached_data.get_or_create_affect_df(
+                                    force_refresh=True,
+                                    agg_period=sample_period,
+                                    min_period_char=min_char_num,
+                                    min_periods=min_period_count,
+                                    exclude_txt=True
+                                )
+
+                    # TODO: consider shifting glue code into function
+                    full_df = cached_data.get_or_create_affect_df()
+                    full_df = full_df[~full_df['exclude_convo']].copy()
+
+                    user_receiver_mask = full_df['sender_name'].eq(user_name)
+                    user_df = full_df[user_receiver_mask].copy().reset_index()
+                    receiver_df = full_df[~user_receiver_mask].copy().reset_index()
+
+                    pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+
+                    print("Generating graphs ...")
+
+                    for ii, (convo_name, convo) in enumerate(cached_data.convos.items()):
+
+                        # Print out progress every 50 conversations
+                        if ii % 50 == 0:
+                            print(f"\t\t{ii} / {len(cached_data.convos)}")
+
+                        receiver_df['receiver_cat'] = np.where(receiver_df['receiver_name'] != convo_name, 'Population',
+                                                               convo_name)
+
+                        # Check if the conversation was excluded and if so, don't generate a graph for it
+                        if receiver_df['receiver_cat'].nunique() < 2: continue
+
+                        user_df['user_cat'] = np.where(user_df['receiver_name'] != convo_name, 'Population', convo_name)
+
+                        signs_dist_obj = convo_visualisation.create_sentiment_dist_comparison(user_df, receiver_df,
+                                                                                              convo_name,
+                                                                                              cached_data.name,
+                                                                                              ["pos", "neg"])
+                        compound_dist_obj = convo_visualisation.create_sentiment_dist_comparison(user_df, receiver_df,
+                                                                                                 convo_name,
+                                                                                                 cached_data.name,
+                                                                                                 ["compound"])
+
+                        # Use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
+                        output_dir = r'//?/' + os.path.join(os.path.abspath(output_root), convo.cleaned_name)
+                        pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+                        save_graph_catch_errs(signs_dist_obj,
+                                              os.path.join(output_dir, "Sentiment Distribution Raw Comparison.jpeg"),
+                                              convo.convo_name)
+                        save_graph_catch_errs(compound_dist_obj,
+                                              os.path.join(output_dir,
+                                                           "Sentiment Distribution Compound Comparison.jpeg"),
+                                              convo.convo_name)
 
             elif choice_graph_list[0] != "0":
                 print("Incorrect command, please try again")

@@ -8,6 +8,7 @@ import bar_chart_race as bcr
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 
 
 # -*- coding: utf-8 -*-
@@ -102,3 +103,38 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
             filter_column_colors=True
         )
     logging.info("Finished Rendering")
+
+
+def create_sentiment_dist_comparison(user_df: pd.DataFrame, receiver_df: pd.DataFrame, convo_name: str, user_name: str,
+                                     fields: List[str]) -> plt.Figure:
+    # Check that fields have been provided and they exist within the dataframe
+    extra_fields = set(fields).difference(set(user_df.columns)).union(set(fields).difference(set(receiver_df.columns)))
+    if len(fields) == 0:
+        raise ValueError("Cannot generate sentiment distributions without selecting fields to score sentiment by")
+
+    if len(extra_fields) > 0:
+        raise ValueError(
+            f"fields variable must only contain columns in the dataframe, the following were not found: {extra_fields}")
+
+    fig, axs = plt.subplots(len(fields), 2, sharey='all', sharex='all', figsize=(16, 10))
+    # Flatten axes to allow 1d indexing in case of 1d or 2d subplot struture (only one field submitted)
+    fltn_axes = axs.flatten()
+
+    fltn_axes[0].set_title("User Messaging Behaviour", fontfamily='serif', loc='center', fontsize='medium')
+    fltn_axes[1].set_title("Other Speakers Messaging Behaviour", fontfamily='serif', loc='center', fontsize='medium')
+
+    for ii, field in enumerate(fields):
+        user_axes = fltn_axes[2 * ii]
+        sns.kdeplot(user_df, x=field, hue="user_cat", common_norm=False, ax=user_axes)
+        user_axes.legend(labels=[user_name, "Population"], title="")
+        user_axes.set_xlabel(f"{field} tone score [0-1]")
+
+        receiver_axes = fltn_axes[2 * ii + 1]
+        sns.kdeplot(receiver_df, x=field, hue="receiver_cat", common_norm=False, ax=receiver_axes)
+        receiver_axes.legend(labels=[convo_name, "Population"], title="")
+        receiver_axes.set_xlabel(f"{field} tone score [0-1]")
+
+    fig.tight_layout()
+    plt.close()
+
+    return fig

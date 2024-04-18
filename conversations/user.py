@@ -1,18 +1,17 @@
 import datetime as dt
-import math
+import logging
 from typing import *
 
 import numpy as np
 import pandas as pd
+import scipy.stats
 
 from conversations.convo import Convo, Person
 
 
 class User:
 
-    def __init__(self, name: str, root_path: str, sa_params=dict()):
-        if sa_params is None:
-            sa_params = dict()
+    def __init__(self, name: str, root_path: str):
         self.name = name
         self.root_path = root_path
         self.convos: Dict[str, Convo] = dict()
@@ -23,18 +22,8 @@ class User:
 
         self.joined_sma_df: pd.DataFrame
 
-        # Ensure params are set at least with default values for sentiment analysis
-        if 'agg_period' not in sa_params:
-            sa_params['agg_period'] = '3D'
+        self._affect_df = None
 
-        if 'min_period_char' not in sa_params:
-            sa_params['min_period_char'] = 300
-
-        self.sentiment_analysis_params = sa_params
-
-        # Benchmarking statistics (impossible default values)
-        self.sentiment_std = -1
-        self.sentiment_mean = 2
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
 
@@ -48,7 +37,7 @@ class User:
         """
 
         if no_groupchats:
-            counts = [(x.convo_name, x.msg_count) for x in self.convos.values() if x.is_group == False]
+            counts = [(x.convo_name, x.msg_count) for x in self.convos.values() if x.is_group is False]
         else:
             counts = [(x.convo_name, x.msg_count) for x in self.convos.values()]
 
@@ -79,12 +68,11 @@ class User:
         """
 
         ratios_list: List[Tuple[str, int]] = []
-        filtered_convos = [x for x in self.convos.values() if self.name in x.speakers]
-
-        if no_groupchats:
-            filtered_convos = [x for x in filtered_convos if x.is_group == True]
 
         for convo in self.convos.values():
+
+            if no_groupchats and convo.is_group: continue
+
             others_speaker_count = len(convo.speakers.keys()) - 1
 
             if self.name in convo.speakers and convo.msg_count > (min_msgs * len(convo.speakers.keys())):
@@ -101,8 +89,87 @@ class User:
 
         return ratios_list
 
-    def get_convos_ranked_by_affect(self, desc_affect: bool, n: int = 100, no_groupchats: bool = True,
-                                    min_msgs: int = 200) -> List[Tuple[str, int]]:
+    def get_or_create_affect_df(self, force_refresh: bool = False, agg_period: str = '7D', min_period_char: int = 500,
+                                min_periods: int = 5, exclude_txt: bool = True):
+
+        if force_refresh or self._affect_df is None:
+            self._affect_df = self._create_convo_affect_df(agg_period=agg_period, min_period_char=min_period_char,
+                                                           min_periods=min_periods, exclude_txt=exclude_txt)
+
+        return self._affect_df
+
+    def _create_convo_affect_df(self, agg_period: str = '7D', min_period_char: int = 500, min_periods: int = 5,
+                                exclude_txt: bool = True):
+
+        affect_df_list = []
+        filtered_convos = {name: convo for name, convo in self.convos.items() if self.name in convo.speakers}
+
+        logging.info("Generating affect data:")
+        excluded_convos = 0
+
+        for ii, convo in enumerate(filtered_convos.values()):
+
+            # Print out progress every 50 conversations
+            if ii % 50 == 0:
+                logging.info(f"\t\t{ii} / {len(filtered_convos)}")
+
+            vader_df = convo.build_sentiment_analysis_df(self.name, agg_period, min_period_char, min_periods,
+                                                         exclude_txt)
+
+            if vader_df is not None:
+                vader_df['receiver_name'] = convo.convo_name
+                vader_df['is_groupchat'] = convo.is_group
+
+                # Include small conversations in benchmark data but remove from list you are iterating through
+                if any(vader_df['exclude_convo']):
+                    vader_df = vader_df[vader_df['sender_name'] == self.name]
+
+                affect_df_list.append(vader_df)
+
+            else:
+                excluded_convos += 1
+
+        logging.info(f"{excluded_convos} conversations were excluded from sentiment analysis")
+
+        return pd.concat(affect_df_list)
+
+    def get_convos_ranked_by_affect(self, filter_user: bool = True, no_groupchat: bool = True) -> pd.DataFrame:
+
+        if self._affect_df is None: raise ValueError(
+            "First need to generate affect data using User.get_or_create_affect_df()")
+
+        if filter_user:
+            user_affect_df = self._affect_df[self._affect_df['sender_name'] == self.name]
+        else:
+            user_affect_df = self._affect_df[self._affect_df['sender_name'] != self.name]
+
+        if no_groupchat:
+            user_affect_df = user_affect_df[~user_affect_df['is_groupchat']]
+
+        results_list = []
+        fields = ('pos', 'neg', 'neu', 'compound')
+
+        for convo_name, convo in self.convos.items():
+            # Retrieve messages for this conversation and compare them to all other messages (avoid cross-contamination)
+            sample_df = user_affect_df[user_affect_df['receiver_name'] == convo_name]
+            pop_df = user_affect_df[user_affect_df['receiver_name'] != convo_name]
+
+            if pop_df.shape[0] > 0 and sample_df.shape[0] > 0:
+                # Additional brackets and comma to prevent python from splitting out each char in string
+                output_row = (convo_name,)
+
+                for field in fields:
+                    sample_avg = np.average(sample_df[field], weights=sample_df['text_len'])
+                    result = scipy.stats.ks_2samp(pop_df[field], sample_df[field], method='asymp')
+                    output_row = output_row + (sample_avg, result[1], result.statistic, result.statistic_sign)
+
+                results_list.append(output_row)
+
+        cols = [f"{field}_{var}" for field in fields for var in ('weighted_avg', 'ks_p_val', 'ks_stat', 'ks_sign')]
+
+        results_df = pd.DataFrame(results_list, columns=['name'] + cols)
+
+        return results_df
 
     def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
 
@@ -165,19 +232,3 @@ class User:
         # Concatenate and fill missing values with zeroes
         return pd.concat(cols_to_combine, axis=1).fillna(0)  # .drop_duplicates()
 
-    def calc_sa_benchmarks(self):
-        # Filter to only conversations with sentiment scores for current user
-        df_list = [convo.vader_df for convo in self.convos.values() if convo.vader_df is not None]
-        filtered_df_list = [df[df['sender_name'] == self.name] for df in df_list]
-
-        weights = [df['text_len'].sum() for df in filtered_df_list]
-        weighted_values = [(df['compound'] * df['text_len']).sum() for df in filtered_df_list]
-        self.sentiment_mean = sum(weighted_values) / sum(weights)
-
-        weighted_diffs = [(np.power(df['compound'] - self.sentiment_mean, 2) * df['text_len']).sum() for df in
-                          filtered_df_list]
-
-        obs_count = sum(df.shape[0] for df in filtered_df_list)
-        bias_correction = (obs_count - 1) / obs_count
-
-        self.sentiment_std = math.sqrt(sum(weighted_diffs) / (bias_correction * sum(weights)))

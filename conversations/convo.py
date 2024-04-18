@@ -35,7 +35,7 @@ class Convo:
     }
 
     def __init__(self, name: str, speakers: Dict[str, Person], is_active: bool, is_group: bool,
-                 messages_df: pd.DataFrame, sa_params: Dict):
+                 messages_df: pd.DataFrame):
         self.convo_name = name
         # For file paths and similar restricted character sets
         speakers_excl_user = [key for key, val in speakers.items() if key != name]
@@ -58,8 +58,6 @@ class Convo:
         # Create character counts for each message
         self.msgs_df['text_len'] = self.msgs_df['text'].apply(lambda x: len(x) if type(x) == str else 0)
 
-        # Create df of aggregated sentiment analysis over time
-        self.vader_df = self.build_sentiment_analysis_df(sa_params['agg_period'], sa_params['min_period_char'])
 
     def __str__(self) -> str:
         output = f'''Conversation Name: {self.convo_name}\n
@@ -105,7 +103,8 @@ class Convo:
 
         return hours_series.T
 
-    def build_sentiment_analysis_df(self, sample_period: str, min_period_char: int) -> [pd.DataFrame, None]:
+    def build_sentiment_analysis_df(self, user_name: str, sample_period: str, min_period_char: int,
+                                    min_periods: int = 5, exclude_txt=True) -> [pd.DataFrame, None]:
 
         # Leave field empty for convos with <100 messages
         if self.msgs_df.shape[0] < 100: return None
@@ -128,14 +127,26 @@ class Convo:
                           .reset_index()
                           )
 
-        # After filtering for size etc, make sure there is sufficient data to trend sentiment over time
-        if period_msgs_df.shape[0] < 10: return None
+        period_msgs_df['exclude_convo'] = False
+
+        # If the data frame is empty, return nothing. If it has too few periods, exclude from ranking but not benchmarking
+        user_msgs_df = period_msgs_df[period_msgs_df['sender_name'] == user_name]
+        if user_msgs_df.shape[0] == 0:
+            return None
+
+        # Minimum periods that the user must be involved in, to justify including in benchmark
+        if user_msgs_df.shape[0] < min_periods:
+            period_msgs_df['exclude_convo'] = True
 
         vader_results = period_msgs_df['text'].apply(
             lambda x: pd.Series(SentimentIntensityAnalyzer().polarity_scores(x)))
         period_msgs_df = period_msgs_df.join(vader_results)
 
         period_msgs_df['text_len'] = period_msgs_df['text'].str.len()
+
+        if exclude_txt:
+            # Drop massive swathes of text to reduce size (vader compound score and dates is all we often need)
+            period_msgs_df = period_msgs_df.drop(columns=['text'])
 
         return period_msgs_df
 
