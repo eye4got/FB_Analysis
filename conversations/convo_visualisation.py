@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from mplcursors import cursor
 
 
 # -*- coding: utf-8 -*-
@@ -136,5 +137,21 @@ def create_sentiment_dist_comparison(user_df: pd.DataFrame, receiver_df: pd.Data
 
     fig.tight_layout()
     plt.close()
+
+    return fig
+
+
+def create_sentiment_quadrant_graph(means_df: pd.DataFrame, title: str):
+    sns.set_context("notebook", font_scale=2, rc={"lines.markersize": 10})
+    fig = plt.figure()
+    plot = sns.scatterplot(means_df, x='pos', y='neg', hue="name_gender", )
+    plot.set_title(title)
+    plot.set_xlabel("Positive Sentiment [0-1]")
+    plot.set_ylabel("Negative Sentiment [0-1]")
+    # FIXME: Difficult to read the small font but I have wasted too much time trying to make it bigger
+    cursor(hover=True).connect("add", lambda sel: sel.annotation.set_text(means_df['name'].iloc[sel.index]))
+    fig.set_size_inches(32, 16)
+
+    sns.reset_defaults()
 
     return fig

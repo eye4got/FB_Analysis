@@ -119,6 +119,7 @@ class User:
             if vader_df is not None:
                 vader_df['receiver_name'] = convo.convo_name
                 vader_df['is_groupchat'] = convo.is_group
+                vader_df['name_gender'] = convo.name_gender
 
                 # Include small conversations in benchmark data but remove from list you are iterating through
                 if any(vader_df['exclude_convo']):

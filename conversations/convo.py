@@ -52,6 +52,10 @@ class Convo:
         self.msg_count = messages_df.shape[0]
         self.msgs_df = messages_df
 
+        # Guess 'gender' based on name to avoid extensive data entry
+        self._pgf = -1  # Retain logistic regression result to enable troubleshooting (set default value)
+        self.name_gender = 'Uncertain'
+
         # Add categorical hour of day column
         self.msgs_df['hour_of_day'] = self.msgs_df.index.map(lambda x: x.hour)
 

@@ -7,6 +7,10 @@ import shutil
 import sys
 
 import numpy as np
+from matplotlib import use
+
+use('TkAgg')
+import matplotlib.pyplot as plt
 
 from conversations import convo_visualisation
 from conversations.convo_reader import ConvoReader
@@ -116,6 +120,7 @@ while choice_main[0] != "0":
             print("(2)\tConversation Timelines")
             print("(3)\tRacing Bar Chart Animation")
             print("(4)\tSentiment Distribution Comparison Graphs")
+            print("(5)\tSentiment Quadrant Interactive Graphs")
             print("(0)\tEscape to Top Menu\n")
             choice_graph_list = input("")
 
@@ -286,13 +291,15 @@ while choice_main[0] != "0":
                     full_df = cached_data.get_or_create_affect_df()
                     full_df = full_df[~full_df['exclude_convo']].copy()
 
+                    no_groups_df = full_df[~full_df['is_groupchat']].copy()
+
                     user_receiver_mask = full_df['sender_name'].eq(user_name)
                     user_df = full_df[user_receiver_mask].copy().reset_index()
                     receiver_df = full_df[~user_receiver_mask].copy().reset_index()
 
                     pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
 
-                    print("Generating graphs ...")
+                    print("Generating distribution graphs ...")
 
                     for ii, (convo_name, convo) in enumerate(cached_data.convos.items()):
 
@@ -327,6 +334,39 @@ while choice_main[0] != "0":
                                               os.path.join(output_dir,
                                                            "Sentiment Distribution Compound Comparison.jpeg"),
                                               convo.convo_name)
+
+            # GENERATE SENTIMENT QUADRANT INTERACTIVE GRAPHS
+
+            elif choice_graph_list[0] == "5":
+                full_df = cached_data.get_or_create_affect_df()
+                filter_mask = np.logical_or(full_df['is_groupchat'], full_df['exclude_convo'])
+                filtered_df = full_df[~filter_mask].copy()
+
+                user_receiver_mask = filtered_df['sender_name'].eq(user_name)
+                user_df = filtered_df[user_receiver_mask].copy().reset_index()
+                receiver_df = filtered_df[~user_receiver_mask].copy().reset_index()
+
+                pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+
+                print("Generating interactive summary graph:")
+
+                agg_methods = {'neg': 'mean', 'pos': 'mean', 'name_gender': 'first'}
+
+                user_means_df = user_df[['receiver_name', 'neg', 'pos', 'name_gender']].groupby(
+                    ['receiver_name']).agg(
+                    agg_methods).reset_index().rename(columns={'receiver_name': 'name'})
+
+                receiver_means_df = receiver_df[['sender_name', 'neg', 'pos', 'name_gender']].groupby(
+                    ['sender_name']).agg(
+                    agg_methods).reset_index().rename(columns={'sender_name': 'name'})
+
+                plt.ion()
+                user_fig = convo_visualisation.create_sentiment_quadrant_graph(user_means_df, "User Behaviour Scores")
+                plt.show(block=True)
+                receiver_fig = convo_visualisation.create_sentiment_quadrant_graph(receiver_means_df,
+                                                                                   "Recipient Behaviour Scores")
+                plt.show(block=True)
+                plt.ioff()
 
             elif choice_graph_list[0] != "0":
                 print("Incorrect command, please try again")

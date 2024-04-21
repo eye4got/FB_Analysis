@@ -10,6 +10,7 @@ import warnings
 import zipfile
 from typing import *
 
+import nomquamgender as nqg
 import numpy as np
 import pandas as pd
 
@@ -64,6 +65,9 @@ class ConvoReader:
     if set(facebook_field_names.keys()) != set(facebook_field_types.keys()):
         raise ValueError(
             "Safety Check Failed: All keys in the field types must be keys in the field names (consistent input pattern)")
+
+    nqg_model = nqg.NBGC()
+    pgf_cutoff = 0.15
 
     @staticmethod
     def unzip_and_merge_files(file_path):
@@ -220,7 +224,14 @@ class ConvoReader:
             curr_user.unknown_convos += 1
             title = ', '.join([x for x in curr_speakers if x != curr_user.name])
 
-        return Convo(title, curr_speakers, is_active, is_group, msgs_df)
+        convo = Convo(title, curr_speakers, is_active, is_group, msgs_df)
+        convo._pgf = ConvoReader.nqg_model.get_pgf(convo.convo_name)[0]
+        if convo._pgf < ConvoReader.pgf_cutoff:
+            convo.name_gender = 'Male'
+        elif convo._pgf > (1 - ConvoReader.pgf_cutoff):
+            convo.name_gender = 'Female'
+
+        return convo
 
     @staticmethod
     def restructure_reactions(reactions_list):
