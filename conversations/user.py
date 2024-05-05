@@ -1,21 +1,29 @@
 import datetime as dt
 import logging
+import time
 from typing import *
 
 import numpy as np
 import pandas as pd
 import scipy.stats
 
-from conversations.convo import Convo, Person
+from conversations.convo import Convo
 
 
 class User:
 
-    def __init__(self, name: str, root_path: str):
+    def __init__(self, name: str, fb_path: str = None, ig_path: str = None):
         self.name = name
-        self.root_path = root_path
+
+        self.fb_path = fb_path
+        self.has_fb = fb_path is not None
+
+        self.ig_path = ig_path
+        self.has_ig = ig_path is not None
+
         self.convos: Dict[str, Convo] = dict()
-        self.persons: Dict[str, Person] = dict()
+
+        self.ig_2_fb_names: Dict[str, str] = dict()
 
         self.unknown_people = 0
         self.unknown_convos = 0
@@ -23,7 +31,6 @@ class User:
         self.joined_sma_df: pd.DataFrame
 
         self._affect_df = None
-
 
     def get_convos_ranked_by_msg_count(self, n: int = 100, no_groupchats: bool = False) -> List[Tuple[str, int]]:
 
@@ -61,7 +68,8 @@ class User:
             Low Char Ratio -> You dominate the conversation
 
         :param desc: A boolean, determining whether the results should be sorted in a descending manner
-        :param n: The number of conversations char ratios to return. Can be used in conjunction with desc to return the head or tail
+        :param n: The number of conversations char ratios to return. Can be used in conjunction with desc to return the
+            head or tail. Negative numbers return all values, the default value is 100
         :param no_groupchats: Optional bool, determining whether to include groupchats
         :param min_msgs: The minimum number of messages per speaker, for the character ratio to be evaluated
         :return: A list of tuples, structured: ('Name', Char Ratio)
@@ -172,31 +180,15 @@ class User:
 
         return results_df
 
-    def get_or_create_persons(self, name_list: List[str]) -> Dict[str, Person]:
-
-        """
-        Retrieve the persons whose names are listed and create any that are missing. This ensures references are pointers
-        to a single Person object rather than duplication between conversations
-        :param name_list: A list of participants names as strings
-        :return: A dictionary of the Persons, with their names as keys
-        """
-
-        selected_persons = dict()
-
-        for person in name_list:
-            if not person in self.persons:
-                self.persons[person] = Person(person)
-            # Extract instances of person for assignment to avoid instance duplication
-            selected_persons[person] = self.persons[person]
-
-        return selected_persons
-
-    def build_sma_df(self, sample_period='14D', rolling_window=3, start_date: Union[dt.datetime, None] = None,
+    def build_sma_df(self, sample_period='14D', start_date: Union[dt.datetime, None] = None,
                      end_date: Union[dt.datetime, None] = None) -> pd.DataFrame:
 
-        offset = dt.timedelta(days=int(sample_period[:-1]))
+        machine_tz = time.strftime("%z")
         if start_date:
-            chart_start_dt = pd.to_datetime(start_date - (offset * rolling_window) * 2)
+            start_date = pd.to_datetime(start_date).tz_localize(machine_tz)
+
+        if end_date:
+            end_date = pd.to_datetime(end_date).tz_localize(machine_tz)
 
         cols_to_combine = []
         for c_name, convo in self.convos.items():
@@ -204,7 +196,7 @@ class User:
             df = convo.msgs_df.copy()
             df['timestamp'] = df.index
             if start_date:
-                df = df[df.timestamp >= chart_start_dt]
+                df = df[df.timestamp >= start_date]
 
             if end_date:
                 df = df[df.timestamp <= end_date]
@@ -213,23 +205,22 @@ class User:
             if df.shape[0] < 100:
                 continue
 
-            # Restrict conversation name length, so y axis labels don't get out of hand
+            # Restrict conversation name length, so y-axis labels don't get out of hand
             c_name = c_name if len(c_name) < 32 else c_name[:32] + ' ...'
 
             # Aggregate text counts into periods and then apply a simple moving average
             sma_df = pd.DataFrame()
             sma_df[c_name] = df.resample(sample_period, on='timestamp', label='right', origin='epoch').text_len.sum()
-            if rolling_window > 1:
-                sma_df[c_name] = sma_df[c_name].rolling(window=rolling_window).mean()
 
             if sma_df.shape[0] > 0:
                 if start_date:
                     sma_df = sma_df[sma_df.index >= start_date]
                 else:
-                    sma_df = sma_df[sma_df.index >= sma_df.index.min() + rolling_window * offset]
+                    sma_df = sma_df[sma_df.index >= sma_df.index.min()]
 
                 cols_to_combine.append(sma_df)
 
         # Concatenate and fill missing values with zeroes
-        return pd.concat(cols_to_combine, axis=1).fillna(0)  # .drop_duplicates()
+        result_df = pd.concat(cols_to_combine, axis=1).fillna(0)  # .drop_duplicates()
 
+        return result_df

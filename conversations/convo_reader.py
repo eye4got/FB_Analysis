@@ -18,9 +18,14 @@ from conversations.convo import Convo
 from conversations.user import User
 
 
+# FIXME: establish abstract pattern and then build specific implementations for FB, IG, Whatsapp etc, instead of gross
+# hardcoded pattern. However, that is extensive extra work for minimal benefit for now (given limited interest in Whatsapp)
+
+
 class ConvoReader:
     cache_file_name = "user_pickle.p"
-    inbox_path = os.path.join("messages", "inbox")
+    fb_inbox_path = os.path.join("your_facebook_activity", "messages", "inbox")
+    ig_inbox_path = os.path.join("your_instagram_activity", "messages", "inbox")
     file_name_pattern = r"(message_\d{1}.json)"
 
     # Uses result of json normalisation, which combines names where nested
@@ -104,7 +109,8 @@ class ConvoReader:
         os.listdir(file_path)
 
     @staticmethod
-    def read_convos(user_name: str, root_path: str, individual_convo: str = None) -> User:
+    def read_convos(user_name: str, fb_path: str = None, ig_path: str = None, ig_fb_matches: pd.DataFrame = None,
+                    individual_convo: str = None) -> User:
 
         """
         :param user_name:   Name of person whose data is being analysed
@@ -114,17 +120,42 @@ class ConvoReader:
 
         Reads all conversations located in the object's filepath
         """
+        # FIXME: adjust so that Facebook is also optional (for IG only users)
 
-        curr_user = User(user_name, root_path)
-        ConvoReader.unzip_and_merge_files(root_path)
-        file_path = os.path.join(root_path, ConvoReader.inbox_path)
+        if not fb_path and not ig_path:
+            raise ValueError("You must provide a valid data extract path for Facebook or Instagram (or both)")
+
+        curr_user = User(user_name, fb_path, ig_path)
+        # ConvoReader.unzip_and_merge_files(fb_path)
+
+        if curr_user.has_ig and curr_user.has_fb:
+            local_ig_inbox_path = os.path.join(ig_path, ConvoReader.ig_inbox_path)
+            ig_fb_matches = ig_fb_matches if ig_fb_matches is not None else ConvoReader.generate_fb_ig_convo_matches(
+                fb_path, ig_path)
+
+            # Remove rows with no matches
+            ig_fb_matches = ig_fb_matches[ig_fb_matches['ig_path'].notna()]
+
+            curr_user.ig_2_fb_names = ig_fb_matches.set_index('id').to_dict()
+
+        local_fb_inbox_path = os.path.join(fb_path, ConvoReader.fb_inbox_path)
         empty_convo_count = 0
 
         # Identify all conversations in directory (needed even for individual conversations, to search for FB file names)
-        convo_list = os.listdir(file_path)
+        convo_list = [os.path.join(local_fb_inbox_path, x) for x in os.listdir(local_fb_inbox_path)]
+        if ig_path:
+            # Remove paths for IG accounts that we have identified are linked to Facebook accounts
+            all_ig_paths = set(os.listdir(local_ig_inbox_path))
+            linked_ig_paths = set(ig_fb_matches['ig_path'][ig_fb_matches['fb_path'].notna()])
+            unlinked_ig_paths = all_ig_paths.difference(linked_ig_paths)
+            only_ig_convo_list = [os.path.join(local_ig_inbox_path, x) for x in unlinked_ig_paths]
 
         if individual_convo is not None:
             convo_list = [ConvoReader.find_individual_convo_path(individual_convo, convo_list)]
+
+        # Process Facebook linked accounts first, so that corresponding Instagram names can be adjusted
+        if ig_path and fb_path:
+            multi_platform_convo_list = []
 
         # Extract each conversation
         logging.info("Extracting conversations:")
@@ -132,9 +163,33 @@ class ConvoReader:
 
             # Print out progress every 50 conversations
             if ii % 50 == 0:
-                logging.info(f"\t\t{ii} / {len(convo_list)}")
+                logging.info(f"\t\t{ii} / {len(convo_list) + len(only_ig_convo_list)}")
 
-            curr_convo = ConvoReader.extract_single_convo(curr_user, os.path.join(file_path, convo_path))
+            linked_ig_path = None
+            if ig_path:
+                linked_ig_col = ig_fb_matches['ig_path'][ig_fb_matches['fb_path'] == os.path.basename(convo_path)]
+
+                if linked_ig_col.shape[0] > 1:
+                    raise ValueError(f"Multiple Instagram paths matched to Facebook path: {convo_path}")
+
+                elif linked_ig_col.shape[0] == 1:
+                    linked_ig_path = os.path.join(local_ig_inbox_path, linked_ig_col.iloc[0])
+
+            curr_convo = ConvoReader.extract_single_convo(curr_user, convo_path, linked_ig_path)
+
+            if curr_convo is not None:
+                curr_user.convos[curr_convo.convo_name] = curr_convo
+
+            else:
+                empty_convo_count += 1
+
+        for ii, convo_path in enumerate(only_ig_convo_list):
+
+            # Print out progress every 50 conversations
+            if ii % 50 == 0:
+                logging.info(f"\t\t{ii + len(convo_list)} / {len(only_ig_convo_list) + len(convo_list)}")
+
+            curr_convo = ConvoReader.extract_single_convo(curr_user, convo_path)
 
             if curr_convo is not None:
                 curr_user.convos[curr_convo.convo_name] = curr_convo
@@ -150,25 +205,16 @@ class ConvoReader:
         return curr_user
 
     @staticmethod
-    def extract_single_convo(curr_user, file_path) -> Union[Convo, None]:
+    def extract_jsons(file_path, field_types) -> (pd.DataFrame, bool, str, List[str]):
 
-        """
-        Identifies all JSON files associated with a single conversation and initialises a Convo object
-        :param curr_user: the current User object instance, which is being added to
-        :param file_path: the path to the conversation within the Raw Data extract
-        :return: a "nullable-like" Convo, in case the Convo cannot be initialised properly
-        """
-
-        # Identify all json files corresponding to conversation
-        json_list = [x for x in os.listdir(file_path) if re.match(ConvoReader.file_name_pattern, x)]
-
-        # Add file path
-        full_path_json_list = [os.path.join(file_path, x) for x in json_list]
+        # Identify all json files corresponding to conversation and add file path
+        json_list = [os.path.join(file_path, x) for x in os.listdir(file_path) if
+                     re.match(ConvoReader.file_name_pattern, x)]
 
         # Setup conversation Dataframe (to guarantee all cols exist, loop through each JSON file and append new rows
-        raw_msgs_df_list = [pd.DataFrame(ConvoReader.facebook_field_types, index=[])]
+        raw_msgs_df_list = [pd.DataFrame(field_types, index=[])]
 
-        for path in full_path_json_list:
+        for path in json_list:
             # Load json as string as its nesting doesn't allow direct normalisation
             try:
                 with open(path) as file_obj:
@@ -188,9 +234,57 @@ class ConvoReader:
             warnings.simplefilter("ignore")
             raw_msgs_df = pd.concat(raw_msgs_df_list)
 
-        msgs_df = ConvoReader.clean_msg_data(raw_msgs_df)
-        msgs_df['missed_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] == 0)
-        msgs_df['successful_call'] = np.logical_and(msgs_df['call_duration'].notna(), msgs_df['call_duration'] > 0)
+        is_active = raw_json["is_still_participant"]
+        title = raw_json["title"].encode("latin1").decode("utf-8")
+        participants = [x['name'].encode("latin1").decode("utf-8") for x in raw_json["participants"]]
+
+        # Ugly multiple return to avoid extra file I/O. Take values from last JSON as they are all consistent
+        return raw_msgs_df, is_active, title, participants
+
+    @staticmethod
+    def extract_single_convo(curr_user: User, fb_path: str = None, ig_path: str = None) -> Union[Convo, None]:
+
+        """
+        Identifies all JSON files associated with a single conversation and initialises a Convo object
+        :param curr_user: the current User object instance, which is being added to
+        :param file_path: the path to the conversation within the Raw Data extract
+        :return: a "nullable-like" Convo, in case the Convo cannot be initialised properly
+        """
+
+        msgs_df = pd.DataFrame()
+        is_active = None
+        title = ''
+        fb_speakers = {}
+
+        if fb_path:
+            raw_fb_msgs_df, is_active, title, raw_speakers = ConvoReader.extract_jsons(fb_path,
+                                                                                       ConvoReader.facebook_field_types)
+            msgs_df = ConvoReader.clean_facebook_msg_data(raw_fb_msgs_df)
+            msgs_df['source'] = 'Facebook'
+            fb_speakers = set(msgs_df["sender_name"].unique().tolist() + raw_speakers)
+
+        if ig_path:
+            # TODO: establish Instagram field types/names (separate function may be required
+            # Is active and is still participant logic doesn't really make sense (separation on one platform?)
+            raw_ig_msgs_df, ig_active, ig_title, raw_speakers = ConvoReader.extract_jsons(ig_path,
+                                                                                          ConvoReader.facebook_field_types)
+            is_active = is_active if is_active else ig_active
+            title = title if title else ig_title
+            # TODO: add separate IG cleaning function
+            ig_msgs_df = ConvoReader.clean_facebook_msg_data(raw_ig_msgs_df)
+            ig_msgs_df['source'] = 'Instagram'
+
+            ig_speakers = set(ig_msgs_df["sender_name"].unique().tolist() + raw_speakers)
+
+            # Preferentially take FB sender name in two person conversations where IG name doesn't match
+            # FIXME: Currently assumes user's FB and IG accounts are linked (and therefore share sender names)
+            if fb_path and len(ig_speakers) == 2 and len(fb_speakers) == 2 and ig_speakers != fb_speakers:
+                fb_name = list(fb_speakers.difference(ig_speakers))[0]
+                ig_name = list(ig_speakers.difference(fb_speakers))[0]
+                ig_msgs_df['sender_name'] = ig_msgs_df['sender_name'].replace(ig_name, fb_name)
+
+            msgs_df = pd.concat([msgs_df, ig_msgs_df])
+
         convo_persons = list(msgs_df["sender_name"].unique())
 
         # Keep track of conversations with people who have deleted their account if there are more than the initial
@@ -210,15 +304,10 @@ class ConvoReader:
                 convo_persons = [x for x in convo_persons if x != '']
 
         # Remove conversations where only one person has sent a message (conversations are initialised with one msg)
-        if len(convo_persons) < 2:
+        if msgs_df.shape[0] <= 1:
             return None
 
-        # Check speakers for existing persons and create new persons where necessary
-        curr_speakers = curr_user.get_or_create_persons(convo_persons)
-
         is_group = len(msgs_df['sender_name'].unique()) > 2
-        is_active = raw_json["is_still_participant"]
-        title = raw_json["title"].encode("latin1").decode("utf-8")
 
         if title == '':
             curr_user.unknown_convos += 1
@@ -256,7 +345,7 @@ class ConvoReader:
         return output_dict
 
     @staticmethod
-    def clean_msg_data(msgs_df: pd.DataFrame) -> pd.DataFrame:
+    def clean_facebook_msg_data(msgs_df: pd.DataFrame) -> pd.DataFrame:
 
         """
         Renames columns to standardised names, converts types, sorts data, flattens and extracts highly nested columns.
@@ -292,6 +381,10 @@ class ConvoReader:
             cleaned_df[col] = cleaned_df[col].apply(lambda x: len(x) if type(x) is list else 0)
 
         # Extract call data
+        cleaned_df['missed_call'] = np.logical_and(cleaned_df['call_duration'].notna(),
+                                                   cleaned_df['call_duration'] == 0)
+        cleaned_df['successful_call'] = np.logical_and(cleaned_df['call_duration'].notna(),
+                                                       cleaned_df['call_duration'] > 0)
 
         return cleaned_df
 
@@ -321,7 +414,8 @@ class ConvoReader:
         return fb_convo_str
 
     @staticmethod
-    def build_cache(root_path: str, cache_root: str, user_name: str):
+    def build_cache(fb_path: str, cache_root: str, user_name: str, ig_path: str = None,
+                    ig_fb_matches: pd.DataFrame = None):
 
         cached_data = None
         full_cache_path = os.path.join(cache_root, ConvoReader.cache_file_name)
@@ -329,7 +423,7 @@ class ConvoReader:
 
         try:
             # Import Convos
-            cached_data = ConvoReader.read_convos(user_name, root_path)
+            cached_data = ConvoReader.read_convos(user_name, fb_path, ig_path=ig_path, ig_fb_matches=ig_fb_matches)
 
             # Check if cache directory exists, if not create it
             pathlib.Path(cache_root).mkdir(parents=True, exist_ok=True)
@@ -338,8 +432,9 @@ class ConvoReader:
             with open(full_cache_path, "wb") as file_obj:
                 pickle.dump(cached_data, file_obj)
 
-        except IOError:
+        except IOError as err:
             logging.info("Cache Build Failed")
+            logging.info(err)
 
         else:
             logging.info("Cache Built")
@@ -347,7 +442,8 @@ class ConvoReader:
         return cached_data
 
     @staticmethod
-    def load_or_create_cache(root_path: str, cache_root: str, user_name: str):
+    def load_or_create_cache(fb_path: str, cache_root: str, user_name: str, ig_path: str = None,
+                             ig_fb_match_df: pd.DataFrame = None):
 
         cached_data = None
         full_cache_path = os.path.join(cache_root, ConvoReader.cache_file_name)
@@ -367,6 +463,21 @@ class ConvoReader:
                 # TODO: Add Cache Integrity Check
 
         if not os.path.exists(full_cache_path):
-            cached_data = ConvoReader.build_cache(root_path, cache_root, user_name)
+            cached_data = ConvoReader.build_cache(fb_path, cache_root, user_name, ig_path, ig_fb_match_df)
 
         return cached_data
+
+    @staticmethod
+    def generate_fb_ig_convo_matches(fb_file_path: str, ig_file_path: str) -> pd.DataFrame:
+
+        fb_inbox_path = os.path.join(fb_file_path, ConvoReader.fb_inbox_path)
+        ig_inbox_path = os.path.join(ig_file_path, ConvoReader.ig_inbox_path)
+
+        # Identify all conversations in directory
+        fb_convo_df = pd.DataFrame({"fb_path": os.listdir(fb_inbox_path)})
+        fb_convo_df['fb_name'] = fb_convo_df['fb_path'].str.replace(r'_\d+', '', regex=True)
+
+        ig_convo_df = pd.DataFrame({"ig_path": os.listdir(ig_inbox_path)})
+        ig_convo_df['ig_name'] = ig_convo_df['ig_path'].str.replace(r'_\d+', '', regex=True)
+
+        return fb_convo_df.merge(ig_convo_df, left_on='fb_name', right_on='ig_name', how='outer')

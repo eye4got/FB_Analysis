@@ -1,6 +1,5 @@
 import datetime
 import logging
-import os
 import warnings
 from typing import *
 
@@ -67,7 +66,8 @@ def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[
     return fig
 
 
-def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, output_path: str, format_desc: str):
+def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, frame_length: int, output_path: str,
+                                   format_desc: str):
     logging.info("Starting Racing Bar Chart Rendering")
 
     # FIXME: Gross warnings filter to suppress UserWarnings for Missing Glyphs in font
@@ -75,13 +75,13 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
         warnings.simplefilter("ignore")
         bcr.bar_chart_race(
             df=agg_msg_count_df,
-            filename=os.path.join(output_path, 'fb_top_messages_history.mp4'),
+            filename=output_path,
             orientation='h',
             sort='desc',
             n_bars=top_n,
             fixed_order=False,
             fixed_max=True,
-            interpolate_period=False,
+            interpolate_period=True,
             label_bars=True,
             bar_size=.95,
             period_label={'x': .99, 'y': .25, 'ha': 'right', 'va': 'center'},
@@ -101,7 +101,8 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
             scale='linear',
             fig=None,
             bar_kwargs={'alpha': .7},
-            filter_column_colors=True
+            filter_column_colors=True,
+            period_length=frame_length
         )
     logging.info("Finished Rendering")
 

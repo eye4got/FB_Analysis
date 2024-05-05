@@ -7,6 +7,7 @@ import shutil
 import sys
 
 import numpy as np
+import pandas as pd
 from matplotlib import use
 
 use('TkAgg')
@@ -26,13 +27,19 @@ mlogger.setLevel(logging.WARNING)
 sys.path.append("conversations")
 
 # Custom Inputs, Replace with questions
-root_path = os.path.join("raw_data", "facebook-rainebianchini")
+fb_root_path = os.path.join("raw_data", "facebook", "fb-27_04_2024-msgs")
+ig_root_path = os.path.join("raw_data", "instagram")
 output_root = "output"
 cache_root = "cache"
 user_name = "Raine Bianchini"
 
+manual_match_file_path = "ig_fb_mapping.csv"
 
+
+# TODO: add input for timezone
 # TODO: add options for create_files?
+# TODO: add min messages cut off for conversations of interest and reduce wasted compute on tiny conversations
+# Related, FIXME: global graph generation is much slower than it should be
 
 def save_graph_catch_errs(fig, filepath, convo_name):
     # Bad practice catchall, but program shouldn't halt because of any file I/O error
@@ -47,14 +54,14 @@ def save_graph_catch_errs(fig, filepath, convo_name):
 # STARTUP
 print("\nAnalysis of FaceBook Data by Raine Bianchini")
 print("Version 0.1")
-cached_data = ConvoReader.load_or_create_cache(root_path, cache_root, user_name)
+cached_data = ConvoReader.load_or_create_cache(fb_root_path, cache_root, user_name, ig_path=ig_root_path)
 
 choice_main = " "
 if not cached_data:
     print("Aborting as cached data cannot be built")
     choice_main = "0"
 
-## TODO: create output file if it doesn't exist?
+# TODO: create output file if it doesn't exist?
 
 
 while choice_main[0] != "0":
@@ -91,18 +98,22 @@ while choice_main[0] != "0":
                 print("\tHigh Char Ratio -> Your friends dominate the conversation")
                 print("\tLow Char Ratio -> You dominate the conversation\n")
 
-                top_char_counts = cached_data.get_convos_ranked_by_char_ratio(desc=False, n=50)
-                bottom_char_counts = cached_data.get_convos_ranked_by_char_ratio(desc=True, n=50)
+                top_n = 20
+                print(
+                    f"Displaying top and bottom {top_n}, conversations which don't meet min message count are excluded")
 
-                for ii, convo in enumerate(top_char_counts):
+                char_counts = cached_data.get_convos_ranked_by_char_ratio(desc=False, n=-1)
+                top_char_counts = char_counts[:top_n] + char_counts[-top_n:] if len(
+                    char_counts) > 2 * top_n else char_counts
+
+                for ii, convo in enumerate(top_char_counts[:len(top_char_counts) // 2]):
                     name, count = convo
                     print(f" {ii + 1}) {name} : {count}")
 
-                bottom_50_start = len(cached_data.convos) - 1
+                offset = max(len(char_counts) - top_n, len(top_char_counts) // 2)
 
-                # Need to reverse list in order to keep it consistent with the above
-                for ii, convo in enumerate(reversed(bottom_char_counts)):
-                    index = ii + bottom_50_start
+                for ii, convo in enumerate(top_char_counts[len(top_char_counts) // 2:]):
+                    index = ii + offset
                     name, count = convo
                     print(f" {index}) {name} : {count}")
 
@@ -174,15 +185,15 @@ while choice_main[0] != "0":
                     print("*******************************************************")
                     print("If you enter no parameters, a default selection will be chosen for you")
                     print(
-                        "[Number of bars] [Time Period for each frame] [Smoothing Window] start_dt:[Start Time] end_dt:[End Time]\n")
+                        "[Number of bars] [Time Period for each frame] [Frame Length] start_dt:[Start Time] end_dt:[End Time]\n")
 
                     print("Number of bars: the top x number of ranked conversations to include in the chart")
                     print("\tFormat: 1-99\n")
                     print("Time Period: How many days of data to aggregate for each time period")
                     print("\tFormat: optional number then capital letter E.g. 3D, 14D\n")
                     print(
-                        "Smoothing Window: How many of the time periods should be smoothed together, to make the chart readable")
-                    print("\tThis parameter is optional, Format: 1-20\n")
+                        "Frame Length: Milliseconds per period (frames are interpolated across this period)")
+                    print("\tThis parameter is optional, Format: 0-9999\n")
                     print("Start Time: Filter out messages before this time (Optional Param)")
                     print("\tFormat: start_dt:YYYY-MM-DD\n")
 
@@ -190,21 +201,21 @@ while choice_main[0] != "0":
                     print("\tFormat: end_dt:YYYY-MM-DD")
 
                     print("Recommended Config:")
-                    recommended_config = f"10 14D 3 end_dt:{dt.date.today() - dt.timedelta(days=90)}"
+                    recommended_config = f"8 30D 1250"
                     print(recommended_config)
                     racing_bar_config = input("Selection: ")
 
                     racing_bar_config = racing_bar_config if racing_bar_config else recommended_config
 
                     # Only allow days because weeks/months override the origin and offset args in pandas.resample
-                    config_regex = r'(\d{1,2})\s(\d{1,3}D)\s?(\d{1,2})?\s?(start_dt:\d{4}-\d{2}-\d{2})?(end_dt:\d{4}-\d{2}-\d{2})?'
+                    config_regex = r'(\d{1,2})\s(\d{1,3}D)\s?(\d{1,4})?\s?(start_dt:\d{4}-\d{2}-\d{2})?\s?(end_dt:\d{4}-\d{2}-\d{2})?'
 
                     matched_config = re.match(config_regex, racing_bar_config, re.IGNORECASE)
                     if matched_config:
                         try:
                             top_convo_num = int(matched_config[1])
                             sample_period = matched_config[2]
-                            rolling_window = int(matched_config[3]) if matched_config[3] else 1
+                            frame_length = int(matched_config[3]) if matched_config[3] else 1250
                             start_date = None
                             end_date = None
 
@@ -221,15 +232,19 @@ while choice_main[0] != "0":
                         else:
                             config_is_correct = True
                             print("\nCleaning data .... \n")
-                            joined_sma_df = cached_data.build_sma_df(sample_period, rolling_window, start_date,
-                                                                     end_date)
+                            joined_sma_df = cached_data.build_sma_df(sample_period, start_date, end_date)
 
-                            title_format_desc = f"({sample_period}ay periods, {rolling_window} period rolling window)"
+                            title_format_desc = f"({sample_period}ay Periods with Interpolation"
+                            start_date_str = f"_start_{start_date.date()}" if start_date else ""
+                            end_date_str = f"_end_{end_date.date()}" if end_date else ""
+                            output_file_name = f"fb_history_{sample_period}_{frame_length}ms{start_date_str}{end_date_str}.mp4"
+                            output_path = os.path.join(output_root, output_file_name)
 
                             print("\nGenerating Racing Bar Chart Animation")
                             pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
                             convo_visualisation.create_bcr_top_convo_animation(joined_sma_df, top_convo_num,
-                                                                               output_root, title_format_desc)
+                                                                               frame_length,
+                                                                               output_path, title_format_desc)
 
 
                     elif racing_bar_config.upper().startswith('Q'):
@@ -277,7 +292,6 @@ while choice_main[0] != "0":
                                 print("\nIncorrect config:")
                                 print(err)
                             else:
-                                config_is_correct = True
                                 print("\nCleaning data .... \n")
                                 cached_data.get_or_create_affect_df(
                                     force_refresh=True,
@@ -286,6 +300,8 @@ while choice_main[0] != "0":
                                     min_periods=min_period_count,
                                     exclude_txt=True
                                 )
+
+                    config_is_correct = True
 
                     # TODO: consider shifting glue code into function
                     full_df = cached_data.get_or_create_affect_df()
@@ -394,7 +410,12 @@ while choice_main[0] != "0":
     elif choice_main[0] == "4":
         shutil.rmtree(cache_root)
         logging.info("Previous Cache Deleted")
-        cached_data = ConvoReader.build_cache(root_path, cache_root, user_name)
+
+        matching_df = None
+        if os.path.isfile(manual_match_file_path):
+            matching_df = pd.read_csv(manual_match_file_path)
+        cached_data = ConvoReader.build_cache(fb_root_path, cache_root, user_name, ig_path=ig_root_path,
+                                              ig_fb_matches=matching_df)
 
     elif choice_main[0] != "0":
         print("Incorrect command, please try again")

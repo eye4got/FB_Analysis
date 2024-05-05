@@ -12,12 +12,6 @@ nltk.download('vader_lexicon')
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 
-class Person:
-
-    def __init__(self, name: str):
-        self.name = name
-
-
 class Convo:
     count_cols = {
         'sender_name': 'Messages',
@@ -34,11 +28,11 @@ class Convo:
         'audio_files': 'Voice Memos'
     }
 
-    def __init__(self, name: str, speakers: Dict[str, Person], is_active: bool, is_group: bool,
+    def __init__(self, name: str, speakers: List[str], is_active: bool, is_group: bool,
                  messages_df: pd.DataFrame):
         self.convo_name = name
         # For file paths and similar restricted character sets
-        speakers_excl_user = [key for key, val in speakers.items() if key != name]
+        speakers_excl_user = [x for x in speakers if x != name]
         cleaned_name = Convo.sanitise_text(name) or Convo.sanitise_text(', '.join(speakers_excl_user))
         if cleaned_name == '':
             raise ValueError(
@@ -65,7 +59,7 @@ class Convo:
 
     def __str__(self) -> str:
         output = f'''Conversation Name: {self.convo_name}\n
-                     Participants: {', '.join(self.speakers.keys())}\n\n'''
+                     Participants: {', '.join(self.speakers)}\n\n'''
 
         subset_cols = ['sender_name', 'text_len', 'photos', 'share_link', 'sticker_path', 'call_duration',
                        'successful_call', 'missed_call', 'videos', 'files', 'audio_files', 'gifs']
