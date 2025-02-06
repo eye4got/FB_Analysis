@@ -1,6 +1,5 @@
 import datetime
 import logging
-import os
 import warnings
 from typing import *
 
@@ -8,6 +7,8 @@ import bar_chart_race as bcr
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+from mplcursors import cursor
 
 
 # -*- coding: utf-8 -*-
@@ -65,7 +66,8 @@ def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[
     return fig
 
 
-def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, output_path: str, format_desc: str):
+def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, frame_length: int, output_path: str,
+                                   format_desc: str):
     logging.info("Starting Racing Bar Chart Rendering")
 
     # FIXME: Gross warnings filter to suppress UserWarnings for Missing Glyphs in font
@@ -73,13 +75,13 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
         warnings.simplefilter("ignore")
         bcr.bar_chart_race(
             df=agg_msg_count_df,
-            filename=os.path.join(output_path, 'fb_top_messages_history.mp4'),
+            filename=output_path,
             orientation='h',
             sort='desc',
             n_bars=top_n,
             fixed_order=False,
             fixed_max=True,
-            interpolate_period=False,
+            interpolate_period=True,
             label_bars=True,
             bar_size=.95,
             period_label={'x': .99, 'y': .25, 'ha': 'right', 'va': 'center'},
@@ -87,7 +89,7 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
             period_summary_func=lambda v, r: {'x': .99, 'y': .18,
                                               's': f'Total char in period: {v.nlargest(top_n).sum():,.0f} \n'
                                                    f'Concentration of char in top 10: {v.nlargest(top_n).sum() / v.sum():.1%}',
-                                              'ha': 'right', 'size': 8, 'family': 'Courier New'},
+                                              'ha': 'right', 'size': 8}, #, 'family': 'Courier New'
             perpendicular_bar_func='median',
             figsize=(8, 4),
             dpi=144,
@@ -99,6 +101,58 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, o
             scale='linear',
             fig=None,
             bar_kwargs={'alpha': .7},
-            filter_column_colors=True
+            filter_column_colors=True,
+            period_length=frame_length
         )
     logging.info("Finished Rendering")
+
+
+def create_sentiment_dist_comparison(user_df: pd.DataFrame, receiver_df: pd.DataFrame, convo_name: str, user_name: str,
+                                     fields: List[str]) -> plt.Figure:
+    # Check that fields have been provided and they exist within the dataframe
+    extra_fields = set(fields).difference(set(user_df.columns)).union(set(fields).difference(set(receiver_df.columns)))
+    if len(fields) == 0:
+        raise ValueError("Cannot generate sentiment distributions without selecting fields to score sentiment by")
+
+    if len(extra_fields) > 0:
+        raise ValueError(
+            f"fields variable must only contain columns in the dataframe, the following were not found: {extra_fields}")
+
+    fig, axs = plt.subplots(len(fields), 2, sharey='all', sharex='all', figsize=(16, 10))
+    # Flatten axes to allow 1d indexing in case of 1d or 2d subplot struture (only one field submitted)
+    fltn_axes = axs.flatten()
+
+    fltn_axes[0].set_title("User Messaging Behaviour", fontfamily='serif', loc='center', fontsize='medium')
+    fltn_axes[1].set_title("Other Speakers Messaging Behaviour", fontfamily='serif', loc='center', fontsize='medium')
+
+    for ii, field in enumerate(fields):
+        user_axes = fltn_axes[2 * ii]
+        sns.kdeplot(user_df, x=field, hue="user_cat", common_norm=False, ax=user_axes)
+        user_axes.legend(labels=[user_name, "Population"], title="")
+        user_axes.set_xlabel(f"{field} tone score [0-1]")
+
+        receiver_axes = fltn_axes[2 * ii + 1]
+        sns.kdeplot(receiver_df, x=field, hue="receiver_cat", common_norm=False, ax=receiver_axes)
+        receiver_axes.legend(labels=[convo_name, "Population"], title="")
+        receiver_axes.set_xlabel(f"{field} tone score [0-1]")
+
+    fig.tight_layout()
+    plt.close()
+
+    return fig
+
+
+def create_sentiment_quadrant_graph(means_df: pd.DataFrame, title: str):
+    sns.set_context("notebook", font_scale=2, rc={"lines.markersize": 10})
+    fig = plt.figure()
+    plot = sns.scatterplot(means_df, x='pos', y='neg', hue="name_gender", )
+    plot.set_title(title)
+    plot.set_xlabel("Positive Sentiment [0-1]")
+    plot.set_ylabel("Negative Sentiment [0-1]")
+    # FIXME: Difficult to read the small font but I have wasted too much time trying to make it bigger
+    cursor(hover=True).connect("add", lambda sel: sel.annotation.set_text(means_df['name'].iloc[sel.index]))
+    fig.set_size_inches(16, 8)
+
+    sns.reset_defaults()
+
+    return fig
