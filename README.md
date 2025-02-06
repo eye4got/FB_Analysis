@@ -28,7 +28,7 @@ an executable with a GUI, to enable a user to drill down into their data.
 
 ### Prerequisites
 
-* **Python** version 3.10.6 + the libaries listed in `requirements.txt`
+* **Python** version 3.11.10 + the libaries listed in `requirements.txt`
 
 * **Facebook data file** in **JSON* format. For instructions on how to download:
   [How do I download a copy of my information on Facebook?](https://www.facebook.com/help/212802592074644?rdrhc)
@@ -42,6 +42,8 @@ an executable with a GUI, to enable a user to drill down into their data.
 * **FFMpeg** Version: ffmpeg-2024-03-14-git-2129d66a66-full_build-www.gyan.dev For instructions on how to install, see
   the pip and github releases instructions from gyan:
   [How to install FFMpeg](https://www.linkedin.com/pulse/step-solve-common-error-racing-bar-chart-ffmpeg-available-yang/)
+
+* **tkinter** Version: 8.6
 
 ### References and Notes
 
