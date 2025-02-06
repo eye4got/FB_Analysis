@@ -71,9 +71,12 @@ class ConvoReader:
         raise ValueError(
             "Safety Check Failed: All keys in the field types must be keys in the field names (consistent input pattern)")
 
+    # Model to guess most common binarized gender associated with name, produces 0-1 output to roughly indicate confidence
     nqg_model = nqg.NBGC()
     pgf_cutoff = 0.15
 
+
+    # FIXME: Adjust so it's not OS specific
     @staticmethod
     def unzip_and_merge_files(file_path):
         """
@@ -120,42 +123,43 @@ class ConvoReader:
 
         Reads all conversations located in the object's filepath
         """
-        # FIXME: adjust so that Facebook is also optional (for IG only users)
 
-        if not fb_path and not ig_path:
-            raise ValueError("You must provide a valid data extract path for Facebook or Instagram (or both)")
+        if (not fb_path and not ig_path) or (ig_path and not os.path.exists(ig_path)) or (fb_path and not os.path.exists(fb_path)):
+            raise ValueError("You must provide a valid data extract path for at least Facebook OR Instagram")
 
         curr_user = User(user_name, fb_path, ig_path)
+        convo_list = []
+        
         # ConvoReader.unzip_and_merge_files(fb_path)
 
+        # Identify all conversations in directories (needed even to retrieve individual conversations, to search for FB file names)
+        if curr_user.has_fb:
+            local_fb_inbox_path = os.path.join(fb_path, ConvoReader.fb_inbox_path)
+            convo_list.extend([os.path.join(local_fb_inbox_path, x) for x in os.listdir(local_fb_inbox_path)])
+
         if curr_user.has_ig and curr_user.has_fb:
-            local_ig_inbox_path = os.path.join(ig_path, ConvoReader.ig_inbox_path)
-            ig_fb_matches = ig_fb_matches if ig_fb_matches is not None else ConvoReader.generate_fb_ig_convo_matches(
-                fb_path, ig_path)
+            if ig_fb_matches is None:
+                ig_fb_matches = ConvoReader.generate_fb_ig_convo_matches(fb_path, ig_path)
 
             # Remove rows with no matches
-            ig_fb_matches = ig_fb_matches[ig_fb_matches['ig_path'].notna()]
+            ig_fb_matches = ig_fb_matches[ig_fb_matches['ig_path'].notna() & ig_fb_matches['fb_path'].notna()]
 
-            curr_user.ig_2_fb_names = ig_fb_matches.set_index('id').to_dict()
+            # Create dictionary to enable easy name standardisation across platforms
+            curr_user.ig_2_fb_names = {key: val for key, val in zip(ig_fb_matches['ig_name'].values, ig_fb_matches['fb_name'].values)}
 
-        local_fb_inbox_path = os.path.join(fb_path, ConvoReader.fb_inbox_path)
         empty_convo_count = 0
 
-        # Identify all conversations in directory (needed even for individual conversations, to search for FB file names)
-        convo_list = [os.path.join(local_fb_inbox_path, x) for x in os.listdir(local_fb_inbox_path)]
-        if ig_path:
-            # Remove paths for IG accounts that we have identified are linked to Facebook accounts
+        if curr_user.has_ig:
+            local_ig_inbox_path = os.path.join(ig_path, ConvoReader.ig_inbox_path)
+            
+            # Only add paths for IG accounts that we have identified are not linked to Facebook accounts
             all_ig_paths = set(os.listdir(local_ig_inbox_path))
             linked_ig_paths = set(ig_fb_matches['ig_path'][ig_fb_matches['fb_path'].notna()])
             unlinked_ig_paths = all_ig_paths.difference(linked_ig_paths)
-            only_ig_convo_list = [os.path.join(local_ig_inbox_path, x) for x in unlinked_ig_paths]
+            convo_list.extend([os.path.join(local_ig_inbox_path, x) for x in unlinked_ig_paths])
 
         if individual_convo is not None:
             convo_list = [ConvoReader.find_individual_convo_path(individual_convo, convo_list)]
-
-        # Process Facebook linked accounts first, so that corresponding Instagram names can be adjusted
-        if ig_path and fb_path:
-            multi_platform_convo_list = []
 
         # Extract each conversation
         logging.info("Extracting conversations:")
@@ -163,10 +167,10 @@ class ConvoReader:
 
             # Print out progress every 50 conversations
             if ii % 50 == 0:
-                logging.info(f"\t\t{ii} / {len(convo_list) + len(only_ig_convo_list)}")
+                logging.info(f"\t\t{ii} / {len(convo_list)}")
 
             linked_ig_path = None
-            if ig_path:
+            if local_fb_inbox_path in convo_path and curr_user.has_ig:
                 linked_ig_col = ig_fb_matches['ig_path'][ig_fb_matches['fb_path'] == os.path.basename(convo_path)]
 
                 if linked_ig_col.shape[0] > 1:
@@ -176,20 +180,6 @@ class ConvoReader:
                     linked_ig_path = os.path.join(local_ig_inbox_path, linked_ig_col.iloc[0])
 
             curr_convo = ConvoReader.extract_single_convo(curr_user, convo_path, linked_ig_path)
-
-            if curr_convo is not None:
-                curr_user.convos[curr_convo.convo_name] = curr_convo
-
-            else:
-                empty_convo_count += 1
-
-        for ii, convo_path in enumerate(only_ig_convo_list):
-
-            # Print out progress every 50 conversations
-            if ii % 50 == 0:
-                logging.info(f"\t\t{ii + len(convo_list)} / {len(only_ig_convo_list) + len(convo_list)}")
-
-            curr_convo = ConvoReader.extract_single_convo(curr_user, convo_path)
 
             if curr_convo is not None:
                 curr_user.convos[curr_convo.convo_name] = curr_convo
@@ -311,9 +301,9 @@ class ConvoReader:
 
         if title == '':
             curr_user.unknown_convos += 1
-            title = ', '.join([x for x in curr_speakers if x != curr_user.name])
+            title = ', '.join([x for x in convo_persons if x != curr_user.name])
 
-        convo = Convo(title, curr_speakers, is_active, is_group, msgs_df)
+        convo = Convo(title, convo_persons, is_active, is_group, msgs_df)
         convo._pgf = ConvoReader.nqg_model.get_pgf(convo.convo_name)[0]
         if convo._pgf < ConvoReader.pgf_cutoff:
             convo.name_gender = 'Male'
@@ -383,7 +373,7 @@ class ConvoReader:
         # Extract call data
         cleaned_df['missed_call'] = np.logical_and(cleaned_df['call_duration'].notna(),
                                                    cleaned_df['call_duration'] == 0)
-        cleaned_df['successful_call'] = np.logical_and(cleaned_df['call_duration'].notna(),
+        cleaned_df['call'] = np.logical_and(cleaned_df['call_duration'].notna(),
                                                        cleaned_df['call_duration'] > 0)
 
         return cleaned_df
@@ -412,7 +402,7 @@ class ConvoReader:
             fb_convo_str = min(matches, key=len)
 
         return fb_convo_str
-
+    
     @staticmethod
     def build_cache(fb_path: str, cache_root: str, user_name: str, ig_path: str = None,
                     ig_fb_matches: pd.DataFrame = None):

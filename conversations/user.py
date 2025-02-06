@@ -81,9 +81,9 @@ class User:
 
             if no_groupchats and convo.is_group: continue
 
-            others_speaker_count = len(convo.speakers.keys()) - 1
+            others_speaker_count = len(convo.speakers) - 1
 
-            if self.name in convo.speakers and convo.msg_count > (min_msgs * len(convo.speakers.keys())):
+            if self.name in convo.speakers and convo.msg_count > (min_msgs * len(convo.speakers)):
                 user_chars = convo.msgs_df[convo.msgs_df["sender_name"] == self.name]["text_len"].sum()
                 others_char_count = convo.msgs_df["text_len"].sum() - user_chars
 

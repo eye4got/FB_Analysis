@@ -89,7 +89,7 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, f
             period_summary_func=lambda v, r: {'x': .99, 'y': .18,
                                               's': f'Total char in period: {v.nlargest(top_n).sum():,.0f} \n'
                                                    f'Concentration of char in top 10: {v.nlargest(top_n).sum() / v.sum():.1%}',
-                                              'ha': 'right', 'size': 8, 'family': 'Courier New'},
+                                              'ha': 'right', 'size': 8}, #, 'family': 'Courier New'
             perpendicular_bar_func='median',
             figsize=(8, 4),
             dpi=144,
@@ -151,7 +151,7 @@ def create_sentiment_quadrant_graph(means_df: pd.DataFrame, title: str):
     plot.set_ylabel("Negative Sentiment [0-1]")
     # FIXME: Difficult to read the small font but I have wasted too much time trying to make it bigger
     cursor(hover=True).connect("add", lambda sel: sel.annotation.set_text(means_df['name'].iloc[sel.index]))
-    fig.set_size_inches(32, 16)
+    fig.set_size_inches(16, 8)
 
     sns.reset_defaults()
 

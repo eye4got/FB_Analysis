@@ -15,10 +15,10 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 class Convo:
     count_cols = {
         'sender_name': 'Messages',
-        'text_len': 'Character Count',
+        'text_len': 'Char. Count',
         'photos': 'Photos',
         'call_duration': 'Call Time (Min)',
-        'successful_call': 'Successful Calls',
+        'call': 'Calls',
         'missed_call': 'Missed Calls',
         'videos': 'Videos',
         'gifs': 'GIFs',
@@ -39,7 +39,7 @@ class Convo:
                 f'The following conversation name was converted to empty text when trying to clean to create the filepath: {name}')
 
         self.cleaned_name = cleaned_name
-        self.speakers = speakers
+        self.speakers: List[str] = speakers
         self.start_time = messages_df.index[0]
         self.is_active = is_active
         self.is_group = is_group
@@ -62,13 +62,13 @@ class Convo:
                      Participants: {', '.join(self.speakers)}\n\n'''
 
         subset_cols = ['sender_name', 'text_len', 'photos', 'share_link', 'sticker_path', 'call_duration',
-                       'successful_call', 'missed_call', 'videos', 'files', 'audio_files', 'gifs']
+                       'call', 'missed_call', 'videos', 'files', 'audio_files', 'gifs']
         reaction_cols = [x for x in self.msgs_df.columns if '_reaction' in x]
         subset_cols.extend(reaction_cols)
 
         # Media Columns have counts of elements per message, need to sum these instead of counting
         # Most columns just need to be counted (how many links, stickers etc)
-        sum_cols = ['photos', 'videos', 'audio_files', 'files', 'missed_call', 'successful_call', 'text_len',
+        sum_cols = ['photos', 'videos', 'audio_files', 'files', 'missed_call', 'call', 'text_len',
                     'call_duration']
         agg_method = {col: ['count'] if col not in sum_cols else ['sum'] for col in subset_cols}
 
@@ -82,7 +82,10 @@ class Convo:
         renamed_count_cols = {**Convo.count_cols, **dict(zip(reaction_cols, cleaned_reaction_cols))}
 
         counts_df.columns = counts_df.columns.get_level_values(0)
-        counts_df.rename(columns=renamed_count_cols, inplace=True)
+        counts_df = counts_df.rename(columns=renamed_count_cols)
+        
+        # Temporarily remove less interesting fields (as they don't fit easily on smaller screens)
+        counts_df = counts_df.drop(columns=['Links', 'Stickers', 'Files', 'Videos'])
 
         output += tabulate(counts_df, headers=counts_df.columns, intfmt=",")
 

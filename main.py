@@ -32,14 +32,15 @@ ig_root_path = os.path.join("raw_data", "instagram")
 output_root = "output"
 cache_root = "cache"
 user_name = "Raine Bianchini"
+min_msgs = 50
 
-manual_match_file_path = "ig_fb_mapping.csv"
+manual_match_file_path = os.path.join("raw_data", "ig_fb_mapping.csv")
 
 
 # TODO: add input for timezone
 # TODO: add options for create_files?
 # TODO: add min messages cut off for conversations of interest and reduce wasted compute on tiny conversations
-# Related, FIXME: global graph generation is much slower than it should be
+# TODO: add enagement score (including call times and add logarithmic points for high char, GIFs etc)
 
 def save_graph_catch_errs(fig, filepath, convo_name):
     # Bad practice catchall, but program shouldn't halt because of any file I/O error
@@ -49,12 +50,29 @@ def save_graph_catch_errs(fig, filepath, convo_name):
 
     except Exception as err:
         logging.warning(f"Failed to save graph for Convo: {convo_name}, due to the following: {err}")
+        
+
+def ensure_output_dir(output_root: str, folder: str) -> str:
+    output_dir = os.path.join(os.path.abspath(output_root), folder)
+    
+    # On windows, use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
+    if sys.platform == 'win32':
+        output_dir = r'//?/' + output_dir
+    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
+    return output_dir
 
 
 # STARTUP
 print("\nAnalysis of FaceBook Data by Raine Bianchini")
 print("Version 0.1")
-cached_data = ConvoReader.load_or_create_cache(fb_root_path, cache_root, user_name, ig_path=ig_root_path)
+
+matching_df = None
+if os.path.isfile(manual_match_file_path):
+    matching_df = pd.read_csv(manual_match_file_path)
+
+cached_data = ConvoReader.load_or_create_cache(fb_root_path, cache_root, user_name,
+                                               ig_path=ig_root_path, ig_fb_match_df=matching_df)
 
 choice_main = " "
 if not cached_data:
@@ -144,15 +162,15 @@ while choice_main[0] != "0":
                 for ii, convo in enumerate(cached_data.convos.values()):
 
                     # Print out progress every 50 conversations FIXME: logging (to both console + file)
-                    if ii % 50 == 0:
-                        print(f"\t\t{ii} / {len(cached_data.convos)}")
+                    if ii % 50 == 0: print(f"\t\t{ii} / {len(cached_data.convos)}")
+                        
+                    # Skip empty convos
+                    if convo.msg_count < min_msgs or len(convo.speakers) < 2: continue
 
                     hist_dataset = convo.get_char_counts_by_hour()
                     hist_obj = convo_visualisation.create_msg_time_hist(hist_dataset, convo.convo_name)
 
-                    # Use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
-                    output_dir = r'//?/' + os.path.join(os.path.abspath(output_root), convo.cleaned_name)
-                    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+                    output_dir = ensure_output_dir(output_root, convo.cleaned_name)
                     save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"),
                                           convo.convo_name)
 
@@ -163,17 +181,15 @@ while choice_main[0] != "0":
                 pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
 
                 for ii, convo in enumerate(cached_data.convos.values()):
-
+                    
                     # Print out progress every 50 conversations
-                    if ii % 50 == 0:
-                        print(f"\t\t{ii} / {len(cached_data.convos)}")
+                    if ii % 50 == 0: print(f"\t\t{ii} / {len(cached_data.convos)}")
+                    
+                    # Skip empty convos
+                    if convo.msg_count < min_msgs or len(convo.speakers) < 2: continue
 
-                    speakers = list(convo.speakers.keys())
-                    hist_obj = convo_visualisation.create_timeline_hist(convo.convo_name, convo.msgs_df, speakers)
-
-                    # Use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
-                    output_dir = r'//?/' + os.path.join(os.path.abspath(output_root), convo.cleaned_name)
-                    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+                    hist_obj = convo_visualisation.create_timeline_hist(convo.convo_name, convo.msgs_df, convo.speakers)
+                    output_dir = ensure_output_dir(output_root, convo.cleaned_name)
                     save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
                                           convo.convo_name)
 
@@ -340,9 +356,7 @@ while choice_main[0] != "0":
                                                                                                  cached_data.name,
                                                                                                  ["compound"])
 
-                        # Use file prefix to bypass 260 filepath char limit, needs to be outside os.path.join to work
-                        output_dir = r'//?/' + os.path.join(os.path.abspath(output_root), convo.cleaned_name)
-                        pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+                        output_dir = ensure_output_dir(output_root, convo.cleaned_name)
                         save_graph_catch_errs(signs_dist_obj,
                                               os.path.join(output_dir, "Sentiment Distribution Raw Comparison.jpeg"),
                                               convo.convo_name)
@@ -397,7 +411,8 @@ while choice_main[0] != "0":
 
         while choice_ind_convo != "QUIT":
             choice_ind_convo = input("\nConvo to Search For (Type QUIT to exit):")
-            user_found = choice_ind_convo in cached_data.persons
+            # TODO: allow some similarity based suggestions upon failure
+            user_found = choice_ind_convo in cached_data.convos.keys()
 
             if not user_found and choice_ind_convo != "QUIT":
                 print("Conversation was not found, please try again\n")
