@@ -25,6 +25,7 @@ from conversations.user import User
 class ConvoReader:
     cache_file_name = "user_pickle.p"
     fb_inbox_path = os.path.join("your_facebook_activity", "messages", "inbox")
+    fb_archive_path = os.path.join("your_facebook_activity", "messages", "archived_threads")
     ig_inbox_path = os.path.join("your_instagram_activity", "messages", "inbox")
     file_name_pattern = r"(message_\d{1}.json)"
 
@@ -136,6 +137,11 @@ class ConvoReader:
         if curr_user.has_fb:
             local_fb_inbox_path = os.path.join(fb_path, ConvoReader.fb_inbox_path)
             convo_list.extend([os.path.join(local_fb_inbox_path, x) for x in os.listdir(local_fb_inbox_path)])
+            
+            # Add archived threads
+            local_fb_archived_path = os.path.join(fb_path, ConvoReader.fb_archive_path)
+            convo_list.extend([os.path.join(local_fb_archived_path, x) for x in os.listdir(local_fb_archived_path)])
+            
 
         if curr_user.has_ig and curr_user.has_fb:
             if ig_fb_matches is None:
@@ -195,7 +201,7 @@ class ConvoReader:
         return curr_user
 
     @staticmethod
-    def extract_jsons(file_path, field_types) -> (pd.DataFrame, bool, str, List[str]):
+    def extract_jsons(file_path, field_types) -> Tuple[pd.DataFrame, bool, str, List[str]]:
 
         # Identify all json files corresponding to conversation and add file path
         json_list = [os.path.join(file_path, x) for x in os.listdir(file_path) if
