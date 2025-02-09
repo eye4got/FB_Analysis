@@ -46,8 +46,6 @@ def create_time_of_day_kdes(convo_name: str, msgs_df: pd.DataFrame) -> plt.Figur
     :return: A Matplotlib figure of time of the day message frequency
     """
     
-    msgs_df["minutes"] = msgs_df.index.hour * 60 + msgs_df.index.minute
-    
     sns.set_palette("tab10")
     if msgs_df['sender_name'].nunique() > 3:
         sns.set_palette("hls")
@@ -67,17 +65,17 @@ def create_time_of_day_kdes(convo_name: str, msgs_df: pd.DataFrame) -> plt.Figur
     return fig
 
 
-def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[str]) -> plt.Figure:
+def create_timeline_hist(convo_name: str, weekly_counts: pd.Series, speakers: List[str]) -> plt.Figure:
     """
     Creates a histogram of character counts sent by each user every week for the entire history of the conversation.
     Designed for smaller conversations, where the graph is relatively uncluttered and accuracy is more interesting
     :param convo_name: Name of conversation. To be included in the title
-    :param msgs_df: A dataframe containing all the messages of the conversation
+    :param weekly_counts: A Series containing the weekly characters exchanged, grouped by sender name
     :return:
     """
 
     # Calculate sums of message character counts for each week for each sender
-    weekly_counts = msgs_df.groupby("sender_name").resample("W")["text_len"].sum()
+    # weekly_counts = msgs_df.groupby("sender_name").resample("W")["text_len"].sum()
     
     fig, axs = plt.subplots(len(speakers), 1, figsize=(16, 8))
     fig.suptitle(f"Weekly Histogram of Character Counts for {convo_name}")
@@ -96,21 +94,17 @@ def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[
     return fig
 
 
-def create_timeline_linechart(convo_name: str, msgs_df: pd.DataFrame, speakers: List[str]) -> plt.Figure:
+def create_timeline_linechart(convo_name: str, weekly_counts_df: pd.DataFrame) -> plt.Figure:
     """
     Creates a line chart of character counts sent by each user every week for the entire history of the conversation.
     Designed for larger conversations to avoid many very squashed histograms
     :param convo_name: Name of conversation. To be included in the title
-    :param msgs_df: A dataframe containing all the messages of the conversation
-    :param speakers: A list of the speakers names to include in the legend
+    :param weekly_counts_df: A dataframe containing the weekly characters exchanged, grouped by sender name
     :return:
     """
 
-    # Calculate sums of message character counts for each week for each sender
-    weekly_counts_df = msgs_df.groupby("sender_name").resample("W")["text_len"].sum().reset_index()
-    
     sns.set_palette("tab10")
-    if len(speakers) > 3:
+    if weekly_counts_df.sender_name.nunique() > 3:
         sns.set_palette("hls")
     
     fig = plt.figure(figsize=(16, 8))
@@ -121,6 +115,36 @@ def create_timeline_linechart(convo_name: str, msgs_df: pd.DataFrame, speakers: 
     plt.legend(title="Sender Name")
     plt.close()
 
+    return fig
+
+
+def create_speaker_ratio_barplot(convo_name: str, counts_df: pd.DataFrame) -> plt.Figure:
+    """
+    Creates a bar char of character counts sent by each user
+    :param convo_name: Name of conversation. To be included in the title
+    :param counts_df: A dataframe containing the total characters sent by each speaker
+    :return:
+    """
+    
+    sns.set_palette("tab10")
+    if counts_df.sender_name.nunique() > 3:
+        sns.set_palette("hls")
+        
+    fig = plt.figure(figsize=(4 + 0.25 * counts_df.sender_name.nunique(), 8))
+    
+    sns.barplot(counts_df, x="sender_name", y="text_len", hue="sender_name")
+    plt.title(f"Total Characters Sent by User for {convo_name}")
+    plt.xlabel("Sender Name")
+    plt.ylabel("Total Characters Sent")
+    
+    if counts_df.sender_name.nunique() > 2:
+        plt.xticks(rotation=70)
+        
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        plt.tight_layout()
+    plt.close()
+    
     return fig
 
 

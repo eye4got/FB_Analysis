@@ -87,7 +87,7 @@ def ensure_output_dir(output_root: str, folder: str) -> str:
 
 # STARTUP
 print("\nAnalysis of FaceBook Data by Raine Bianchini")
-print("Version 0.1")
+print("Version 0.2")
 
 matching_df = None
 if os.path.isfile(manual_match_file_path):
@@ -167,9 +167,10 @@ while choice_main[0] != "0":
             print("\nGraph List Menu:")
             print("(1)\tTime of Day Histograms")
             print("(2)\tConversation Timelines")
-            print("(3)\tRacing Bar Chart Animation")
-            print("(4)\tSentiment Distribution Comparison Graphs")
-            print("(5)\tSentiment Quadrant Interactive Graphs")
+            print("(3)\tConversation Contribution Barplots")
+            print("(4)\tRacing Bar Chart Animation")
+            print("(5)\tSentiment Distribution Comparison Graphs")
+            print("(6)\tSentiment Quadrant Interactive Graphs")
             print("(0)\tEscape to Top Menu\n")
             choice_graph_list = input("")
 
@@ -194,7 +195,10 @@ while choice_main[0] != "0":
                     for speaker in curr_msgs_df['sender_name'].unique():
                         if curr_msgs_df[curr_msgs_df['sender_name'].eq(speaker)].shape[0] < min_speaker_msgs:
                             curr_msgs_df = curr_msgs_df[curr_msgs_df['sender_name'].ne(speaker)]
-                        
+                            
+                    # Add minute of the day measure for visualisation
+                    curr_msgs_df["minutes"] = curr_msgs_df.index.hour * 60 + curr_msgs_df.index.minute
+                    
                     hist_obj = convo_visualisation.create_time_of_day_kdes(convo.convo_name, curr_msgs_df)
 
                     output_dir = ensure_output_dir(output_root, convo.cleaned_name)
@@ -215,13 +219,36 @@ while choice_main[0] != "0":
                     # Print out progress every 50 conversations
                     if ii % 50 == 0: print(f"\t\t{ii} / {len(convos_list)}")
                     
-                    hist_obj = convo_visualisation.create_timeline_linechart(convo.convo_name, convo.msgs_df, convo.speakers)
+                    # Calculate sums of message character counts for each week for each sender
+                    weekly_counts_df = convo.msgs_df.groupby("sender_name").resample("W")["text_len"].sum().reset_index()
+                    hist_obj = convo_visualisation.create_timeline_linechart(convo.convo_name, weekly_counts_df, convo.speakers)
                     output_dir = ensure_output_dir(output_root, convo.cleaned_name)
                     save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
                                           convo.convo_name)
 
+            # GENERATE CONVERSATION CONTRIBUTION BARPLOTS
+            elif choice_graph_list[0] == "3": 
+                
+                print("\nGenerating Conversation Contribution Barplots")
+                print(f"\tSkipping empty conversations (<{min_msgs} messages)")
+                pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+                
+                # Skip empty convos or conversations with too many speakers
+                convos_list = [x for x in cached_data.convos.values() if x.msg_count >= min_msgs and len(x.speakers) >= 2]
+
+                for ii, convo in enumerate(convos_list):
+                    
+                    # Print out progress every 50 conversations
+                    if ii % 50 == 0: print(f"\t\t{ii} / {len(convos_list)}")
+                    
+                    counts_df = convo.msgs_df.groupby('sender_name').text_len.sum().reset_index()
+                    fig = convo_visualisation.create_speaker_ratio_barplot(convo.convo_name, counts_df)
+                    output_dir = ensure_output_dir(output_root, convo.cleaned_name)
+                    save_graph_catch_errs(fig, os.path.join(output_dir, "Conversation Contribution Barplot.jpeg"),
+                                          convo.convo_name)
+                
             # GENERATE RACING BAR CHART ANIMATION
-            elif choice_graph_list[0] == "3":
+            elif choice_graph_list[0] == "4":
                 config_is_correct = False
                 while not config_is_correct:
                     print("Config for Racing Bar Chart Animation:")
@@ -298,7 +325,7 @@ while choice_main[0] != "0":
                         print("Config did not match format, please try again!")
 
             # GENERATE SENTIMENT SAMPLE VS POPULATION DISTRIBUTION COMPARISON GRAPHS
-            elif choice_graph_list[0] == "4":
+            elif choice_graph_list[0] == "5":
                 config_is_correct = False
                 while not config_is_correct:
                     print("Config for Sentiment Distribution Comparisons:")
@@ -385,7 +412,7 @@ while choice_main[0] != "0":
                                               convo.convo_name)
 
             # GENERATE SENTIMENT QUADRANT INTERACTIVE GRAPHS
-            elif choice_graph_list[0] == "5":
+            elif choice_graph_list[0] == "6":
                 user_df, receiver_df = cached_data.get_or_create_affect_dfs()
 
                 pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
