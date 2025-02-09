@@ -5,12 +5,17 @@ import pathlib
 import re
 import shutil
 import sys
+import warnings
 
 import numpy as np
 import pandas as pd
-from matplotlib import use
+import matplotlib as mpl
 
-use('TkAgg')
+import matplotlib.font_manager as font_manager
+# prop = font_manager.FontProperties(fname='Optimistic_DisplayVF_A_Wght.ttf')
+mpl.rcParams['font.family'] = ['DejaVu Sans', 'Noto Color Emoji']
+
+mpl.use('TkAgg')
 import matplotlib.pyplot as plt
 
 from conversations import convo_visualisation
@@ -26,27 +31,44 @@ mlogger.setLevel(logging.WARNING)
 # Make modules accessible through convenient names
 sys.path.append("conversations")
 
+# FIXME: find alternatives + fix issues with emojis
+# Shift font + delete cache
+font = 'NotoColorEmoji-Regular.ttf'
+font_path = os.path.join('.venv', 'lib', 'python3.11', 'site-packages', 'matplotlib', 'mpl-data', 'fonts', 'ttf', font)
+
+if not os.path.exists(font_path):
+    shutil.copy(font, font_path)
+    # Remove matplotlib cache if exists to force rebuild of font index
+    mlp_cache_path = os.path.join(os.path.expanduser('~'), '.cache', 'matplotlib')
+    for curr_path in os.listdir(mlp_cache_path):
+        os.remove(os.path.join(mlp_cache_path, curr_path))
+
 # Custom Inputs, Replace with questions
 fb_root_path = os.path.join("raw_data", "facebook", "fb-27_04_2024-msgs")
 ig_root_path = os.path.join("raw_data", "instagram")
 output_root = "output"
 cache_root = "cache"
 user_name = "Raine Bianchini"
-min_msgs = 50
+min_msgs = 200
+min_speaker_msgs = 30
+
+timeline_max_speakers = 10
+timeofday_max_speakers = 8
 
 manual_match_file_path = os.path.join("raw_data", "ig_fb_mapping.csv")
 
 
 # TODO: add input for timezone
-# TODO: add options for create_files?
-# TODO: add min messages cut off for conversations of interest and reduce wasted compute on tiny conversations
 # TODO: add enagement score (including call times and add logarithmic points for high char, GIFs etc)
 
 def save_graph_catch_errs(fig, filepath, convo_name):
     # Bad practice catchall, but program shouldn't halt because of any file I/O error
     # FIXME: Check for collisions ahead of time and add custom suffix
     try:
-        fig.savefig(filepath)
+        # Catch any unresolved missing glyphs from font (even Noto doesn't have all of FB's emojis)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fig.savefig(filepath)
 
     except Exception as err:
         logging.warning(f"Failed to save graph for Convo: {convo_name}, due to the following: {err}")
@@ -78,8 +100,6 @@ choice_main = " "
 if not cached_data:
     print("Aborting as cached data cannot be built")
     choice_main = "0"
-
-# TODO: create output file if it doesn't exist?
 
 
 while choice_main[0] != "0":
@@ -157,38 +177,45 @@ while choice_main[0] != "0":
             if choice_graph_list[0] == "1":
 
                 print("\nGenerating Time of Day Histograms")
+                print(f"\tSkipping empty conversations (<{min_msgs} messages) or groupchats with more than {timeofday_max_speakers} speakers")
+                print(f"\tExcluding speakers who sent less than {min_speaker_msgs} to avoid poor estimates")
                 pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+                
+                # Skip empty convos or conversations with too many speakers
+                convos_list = [x for x in cached_data.convos.values() if x.msg_count >= min_msgs and 2 <= len(x.speakers) <= timeofday_max_speakers]
 
-                for ii, convo in enumerate(cached_data.convos.values()):
+                for ii, convo in enumerate(convos_list):
 
-                    # Print out progress every 50 conversations FIXME: logging (to both console + file)
-                    if ii % 50 == 0: print(f"\t\t{ii} / {len(cached_data.convos)}")
+                    # Print out progress every 50 conversations
+                    if ii % 50 == 0: print(f"\t\t{ii} / {len(convos_list)}")
+                    
+                    # Exclude speakers with two few messages
+                    curr_msgs_df = convo.msgs_df.copy()
+                    for speaker in curr_msgs_df['sender_name'].unique():
+                        if curr_msgs_df[curr_msgs_df['sender_name'].eq(speaker)].shape[0] < min_speaker_msgs:
+                            curr_msgs_df = curr_msgs_df[curr_msgs_df['sender_name'].ne(speaker)]
                         
-                    # Skip empty convos
-                    if convo.msg_count < min_msgs or len(convo.speakers) < 2: continue
-
-                    hist_dataset = convo.get_char_counts_by_hour()
-                    hist_obj = convo_visualisation.create_msg_time_hist(hist_dataset, convo.convo_name)
+                    hist_obj = convo_visualisation.create_time_of_day_kdes(convo.convo_name, curr_msgs_df)
 
                     output_dir = ensure_output_dir(output_root, convo.cleaned_name)
-                    save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"),
-                                          convo.convo_name)
+                    save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Time of Day Histogram.jpeg"), convo.convo_name)
 
             # GENERATE CONVERSATION MSG COUNT TIMELINE
             elif choice_graph_list[0] == "2":
 
                 print("\nGenerating Conversation Timeline Graphs")
+                print(f"\tSkipping empty conversations (<{min_msgs} messages) or groupchats with more than {timeline_max_speakers} speakers")
                 pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
+                
+                # Skip empty convos or conversations with too many speakers
+                convos_list = [x for x in cached_data.convos.values() if x.msg_count >= min_msgs and 2 <= len(x.speakers) <= timeline_max_speakers]
 
-                for ii, convo in enumerate(cached_data.convos.values()):
+                for ii, convo in enumerate(convos_list):
                     
                     # Print out progress every 50 conversations
-                    if ii % 50 == 0: print(f"\t\t{ii} / {len(cached_data.convos)}")
+                    if ii % 50 == 0: print(f"\t\t{ii} / {len(convos_list)}")
                     
-                    # Skip empty convos
-                    if convo.msg_count < min_msgs or len(convo.speakers) < 2: continue
-
-                    hist_obj = convo_visualisation.create_timeline_hist(convo.convo_name, convo.msgs_df, convo.speakers)
+                    hist_obj = convo_visualisation.create_timeline_linechart(convo.convo_name, convo.msgs_df, convo.speakers)
                     output_dir = ensure_output_dir(output_root, convo.cleaned_name)
                     save_graph_catch_errs(hist_obj, os.path.join(output_dir, "Conversation Timeline.jpeg"),
                                           convo.convo_name)
@@ -250,7 +277,7 @@ while choice_main[0] != "0":
                             print("\nCleaning data .... \n")
                             joined_sma_df = cached_data.build_sma_df(sample_period, start_date, end_date)
 
-                            title_format_desc = f"({sample_period}ay Periods with Interpolation"
+                            title_format_desc = f"({sample_period}ay Periods with Interpolation)"
                             start_date_str = f"_start_{start_date.date()}" if start_date else ""
                             end_date_str = f"_end_{end_date.date()}" if end_date else ""
                             output_file_name = f"fb_history_{sample_period}_{frame_length}ms{start_date_str}{end_date_str}.mp4"
@@ -319,15 +346,7 @@ while choice_main[0] != "0":
 
                     config_is_correct = True
 
-                    # TODO: consider shifting glue code into function
-                    full_df = cached_data.get_or_create_affect_df()
-                    full_df = full_df[~full_df['exclude_convo']].copy()
-
-                    no_groups_df = full_df[~full_df['is_groupchat']].copy()
-
-                    user_receiver_mask = full_df['sender_name'].eq(user_name)
-                    user_df = full_df[user_receiver_mask].copy().reset_index()
-                    receiver_df = full_df[~user_receiver_mask].copy().reset_index()
+                    user_df, receiver_df = cached_data.get_or_create_affect_dfs()
 
                     pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
 
@@ -366,15 +385,8 @@ while choice_main[0] != "0":
                                               convo.convo_name)
 
             # GENERATE SENTIMENT QUADRANT INTERACTIVE GRAPHS
-
             elif choice_graph_list[0] == "5":
-                full_df = cached_data.get_or_create_affect_df()
-                filter_mask = np.logical_or(full_df['is_groupchat'], full_df['exclude_convo'])
-                filtered_df = full_df[~filter_mask].copy()
-
-                user_receiver_mask = filtered_df['sender_name'].eq(user_name)
-                user_df = filtered_df[user_receiver_mask].copy().reset_index()
-                receiver_df = filtered_df[~user_receiver_mask].copy().reset_index()
+                user_df, receiver_df = cached_data.get_or_create_affect_dfs()
 
                 pathlib.Path(output_root).mkdir(parents=True, exist_ok=True)
 

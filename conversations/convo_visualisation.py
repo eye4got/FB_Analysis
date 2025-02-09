@@ -27,8 +27,8 @@ def create_msg_time_hist(hours_series: pd.DataFrame, convo_name: str) -> plt.Fig
     # Create hourly labels for time histogram, 2D array to match shape of series
     hist_hours = [[str(x) + ":00" for x in range(24)] for y in range(hours_series.shape[1])]
 
-    # Use np.arrange and -0.5 to create bins centred on labels
     histogram = plt.figure(figsize=(14, 8))
+    # Use np.arrange and -0.5 to create bins centred on labels
     plt.hist(hist_hours, bins=np.arange(25) - 0.5, weights=hours_series)
     plt.legend([x for x in hours_series.columns], loc="upper left")
 
@@ -38,20 +38,49 @@ def create_msg_time_hist(hours_series: pd.DataFrame, convo_name: str) -> plt.Fig
     return histogram
 
 
+def create_time_of_day_kdes(convo_name: str, msgs_df: pd.DataFrame) -> plt.Figure:
+    """
+    Creates a rough distribution of what time of day each speaker messages
+    :param convo_name: A string, containing the name of the conversation
+    :param msgs_df: A dataframe containing all the messages of the conversation
+    :return: A Matplotlib figure of time of the day message frequency
+    """
+    
+    msgs_df["minutes"] = msgs_df.index.hour * 60 + msgs_df.index.minute
+    
+    sns.set_palette("tab10")
+    if msgs_df['sender_name'].nunique() > 3:
+        sns.set_palette("hls")
+
+    fig = plt.figure(figsize=(14, 8))
+    sns.kdeplot(msgs_df, x="minutes", weights="text_len", hue="sender_name", clip = (0, 24 * 60), fill=True, alpha=0.2, common_norm=False)
+    plt.title(f"Distribution of Messaging Times by User for {convo_name}")
+    
+    # Remove Density ticks as their specific values are meaningless and confusing
+    fig.axes[0].tick_params(labelleft=False)
+    
+    fig.axes[0].set_xticks(range(0, 24 * 60, 60), minor=True)
+    fig.axes[0].set_xticks(range(0, 24 * 60, 120), labels=[str(x).zfill(2) + ":00" for x in range(0, 24, 2)], minor=False)
+    plt.xlabel('Hour of the Day')
+    plt.close()
+
+    return fig
+
+
 def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[str]) -> plt.Figure:
     """
-    Creates a histogram of character counts sent by each user every 3 days for the entire history of the conversation
+    Creates a histogram of character counts sent by each user every week for the entire history of the conversation.
+    Designed for smaller conversations, where the graph is relatively uncluttered and accuracy is more interesting
     :param convo_name: Name of conversation. To be included in the title
     :param msgs_df: A dataframe containing all the messages of the conversation
-    :param speakers: A list of the speakers names to include in the legend
     :return:
     """
 
     # Calculate sums of message character counts for each week for each sender
     weekly_counts = msgs_df.groupby("sender_name").resample("W")["text_len"].sum()
-
+    
     fig, axs = plt.subplots(len(speakers), 1, figsize=(16, 8))
-    fig.suptitle("Weekly Histogram of Character Counts for " + convo_name)
+    fig.suptitle(f"Weekly Histogram of Character Counts for {convo_name}")
 
     for ii, speaker in enumerate(speakers):
         bins = weekly_counts[speaker].index - datetime.timedelta(3)
@@ -60,7 +89,36 @@ def create_timeline_hist(convo_name: str, msgs_df: pd.DataFrame, speakers: List[
         axs[ii].grid(True)
 
     axs[len(speakers) - 1].set_title("Time")
-    fig.tight_layout()
+    if len(speakers) == 2:
+        fig.tight_layout()
+    plt.close()
+
+    return fig
+
+
+def create_timeline_linechart(convo_name: str, msgs_df: pd.DataFrame, speakers: List[str]) -> plt.Figure:
+    """
+    Creates a line chart of character counts sent by each user every week for the entire history of the conversation.
+    Designed for larger conversations to avoid many very squashed histograms
+    :param convo_name: Name of conversation. To be included in the title
+    :param msgs_df: A dataframe containing all the messages of the conversation
+    :param speakers: A list of the speakers names to include in the legend
+    :return:
+    """
+
+    # Calculate sums of message character counts for each week for each sender
+    weekly_counts_df = msgs_df.groupby("sender_name").resample("W")["text_len"].sum().reset_index()
+    
+    sns.set_palette("tab10")
+    if len(speakers) > 3:
+        sns.set_palette("hls")
+    
+    fig = plt.figure(figsize=(16, 8))
+    plt.title(f"Weekly Character Counts for {convo_name}")
+    sns.lineplot(data=weekly_counts_df, x="timestamp", y="text_len", hue="sender_name", alpha=0.8)
+    plt.xlabel("Time")
+    plt.ylabel("Character Count")
+    plt.legend(title="Sender Name")
     plt.close()
 
     return fig
@@ -70,7 +128,7 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, f
                                    format_desc: str):
     logging.info("Starting Racing Bar Chart Rendering")
 
-    # FIXME: Gross warnings filter to suppress UserWarnings for Missing Glyphs in font
+    # Exclude UserWarnings which clog up outtput
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         bcr.bar_chart_race(
@@ -87,14 +145,14 @@ def create_bcr_top_convo_animation(agg_msg_count_df: pd.DataFrame, top_n: int, f
             period_label={'x': .99, 'y': .25, 'ha': 'right', 'va': 'center'},
             period_fmt='%B %d, %Y',
             period_summary_func=lambda v, r: {'x': .99, 'y': .18,
-                                              's': f'Total char in period: {v.nlargest(top_n).sum():,.0f} \n'
-                                                   f'Concentration of char in top 10: {v.nlargest(top_n).sum() / v.sum():.1%}',
-                                              'ha': 'right', 'size': 8}, #, 'family': 'Courier New'
+                                                's': f'Total char in period: {v.nlargest(top_n).sum():,.0f} \n'
+                                                    f'Concentration of char in top 10: {v.nlargest(top_n).sum() / v.sum():.1%}',
+                                                'ha': 'right', 'size': 8}, #, 'family': 'Courier New'
             perpendicular_bar_func='median',
             figsize=(8, 4),
             dpi=144,
             cmap='gist_ncar',
-            title=f'Avg Characters Exchanged on FB Messenger {format_desc}',
+            title=f'Avg Char. Exchanged on FB Messenger {format_desc}',
             title_size='12',
             bar_label_size=7,
             tick_label_size=7,

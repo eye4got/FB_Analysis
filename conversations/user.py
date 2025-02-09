@@ -97,14 +97,21 @@ class User:
 
         return ratios_list
 
-    def get_or_create_affect_df(self, force_refresh: bool = False, agg_period: str = '7D', min_period_char: int = 500,
-                                min_periods: int = 5, exclude_txt: bool = True):
+    def get_or_create_affect_dfs(self, force_refresh: bool = False, agg_period: str = '7D', min_period_char: int = 500,
+                                min_periods: int = 5, exclude_txt: bool = True) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         if force_refresh or self._affect_df is None:
             self._affect_df = self._create_convo_affect_df(agg_period=agg_period, min_period_char=min_period_char,
                                                            min_periods=min_periods, exclude_txt=exclude_txt)
+            
+        filter_mask = np.logical_or(self._affect_df ['is_groupchat'], self._affect_df ['exclude_convo'])
+        filtered_df = self._affect_df [~filter_mask].copy()
 
-        return self._affect_df
+        user_receiver_mask = filtered_df['sender_name'].eq(self.name)
+        user_df = filtered_df[user_receiver_mask].copy().reset_index()
+        receiver_df = filtered_df[~user_receiver_mask].copy().reset_index()
+
+        return user_df, receiver_df
 
     def _create_convo_affect_df(self, agg_period: str = '7D', min_period_char: int = 500, min_periods: int = 5,
                                 exclude_txt: bool = True):
